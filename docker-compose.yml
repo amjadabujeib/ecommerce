@@ -1,0 +1,112 @@
+# NovaCart: run from the project root with `docker compose up -d --build`.
+#
+#   laravel-app/       the Laravel API (app + web containers)
+#   nodejs-inventory/  the inventory service (Node.js, gRPC)
+#   proto/             the gRPC contract shared by both
+#
+services:
+  app:
+    build:
+      context: ./laravel-app
+      target: app
+    restart: unless-stopped
+    environment:
+      APP_NAME: NovaCart
+      APP_ENV: production
+      APP_DEBUG: "false"
+      APP_URL: ${APP_URL:-http://localhost:8080}
+      LOG_CHANNEL: stderr
+      DB_CONNECTION: pgsql
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_DATABASE: novacart
+      DB_USERNAME: novacart
+      DB_PASSWORD: ${DB_PASSWORD:-novacart}
+      SESSION_DRIVER: database
+      CACHE_STORE: database
+      QUEUE_CONNECTION: sync
+      JWT_TTL: ${JWT_TTL:-60}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-*}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@example.com}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      # Stock lives in the inventory service, reached over gRPC only.
+      INVENTORY_GRPC_ADDRESS: inventory:50051
+      INVENTORY_TIMEOUT_MS: ${INVENTORY_TIMEOUT_MS:-2000}
+    volumes:
+      - storage:/var/www/html/storage
+    depends_on:
+      db:
+        condition: service_healthy
+      inventory:
+        condition: service_healthy
+
+  web:
+    build:
+      context: ./laravel-app
+      target: web
+    restart: unless-stopped
+    ports:
+      - "${APP_PORT:-8080}:80"
+    volumes:
+      - storage:/var/www/html/storage:ro
+    depends_on:
+      - app
+
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: novacart
+      POSTGRES_USER: novacart
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-novacart}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U novacart -d novacart"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # The inventory service (Node.js): owns product stock and serves it over
+  # gRPC. It has its own database and no published port: only the app talks
+  # to it, through the contract in proto/inventory/v1/inventory.proto.
+  inventory:
+    build:
+      context: ./nodejs-inventory
+      additional_contexts:
+        proto: ./proto
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://inventory:${INVENTORY_DB_PASSWORD:-inventory}@inventory-db:5432/inventory
+      GRPC_PORT: 50051
+      # Set (e.g. to 5000) to demonstrate a slow inventory service.
+      INVENTORY_ARTIFICIAL_DELAY_MS: ${INVENTORY_ARTIFICIAL_DELAY_MS:-0}
+    depends_on:
+      inventory-db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "src/healthcheck.js"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+
+  inventory-db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: inventory
+      POSTGRES_USER: inventory
+      POSTGRES_PASSWORD: ${INVENTORY_DB_PASSWORD:-inventory}
+    volumes:
+      - inventory-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U inventory -d inventory"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  storage:
+  pgdata:
+  inventory-pgdata:

@@ -1,0 +1,105 @@
+// The contract between the NovaCart application (Laravel, PHP) and the
+// inventory service (Node.js). It is the only way the application can read or
+// change stock: the application never touches the inventory database.
+//
+// Both sides are generated from this file:
+//   - Node.js loads it at runtime with @grpc/proto-loader.
+//   - PHP classes live in laravel-app/app/Modules/Inventory/Grpc/Proto (run
+//     nodejs-inventory/scripts/generate-php.sh to regenerate them).
+
+syntax = "proto3";
+
+package inventory.v1;
+
+option php_namespace = "App\\Modules\\Inventory\\Grpc\\Proto";
+option php_metadata_namespace = "App\\Modules\\Inventory\\Grpc\\Proto\\Metadata";
+
+service InventoryService {
+  // How many units of these products are available right now?
+  // Products the inventory has never heard of are reported with 0 units.
+  rpc GetStock(GetStockRequest) returns (GetStockResponse);
+
+  // Reserve the quantities of every line of an order in one atomic step:
+  // either all lines are reserved or nothing changes.
+  //
+  // Not enough stock is a normal business answer (status REJECTED with the
+  // shortages), not an error. The call is idempotent per reservation_id:
+  // sending the same reservation again returns the first answer.
+  rpc Reserve(ReserveRequest) returns (ReserveResponse);
+
+  // Give the units of a reservation back (failed order, cancelled order).
+  // Idempotent: releasing twice, or releasing a reservation that never
+  // arrived, is safe. A release that arrives first also blocks a late
+  // Reserve with the same id from taking stock afterwards.
+  rpc Release(ReleaseRequest) returns (ReleaseResponse);
+
+  // Set the absolute stock of a product (administrator stock management).
+  rpc SetStock(SetStockRequest) returns (SetStockResponse);
+}
+
+message StockLevel {
+  int64 product_id = 1;
+  int32 available = 2;
+}
+
+message GetStockRequest {
+  repeated int64 product_ids = 1;
+}
+
+message GetStockResponse {
+  repeated StockLevel levels = 1;
+}
+
+message ReserveItem {
+  int64 product_id = 1;
+  int32 quantity = 2;
+}
+
+message ReserveRequest {
+  // Chosen by the caller (a UUID), so a retried or timed-out call can be
+  // matched to the reservation it may already have created.
+  string reservation_id = 1;
+  repeated ReserveItem items = 2;
+}
+
+enum ReservationStatus {
+  RESERVATION_STATUS_UNSPECIFIED = 0;
+  // Every line was reserved; stock has been taken.
+  RESERVATION_STATUS_RESERVED = 1;
+  // At least one line could not be served; nothing was taken.
+  RESERVATION_STATUS_REJECTED = 2;
+  // This reservation id was already released, so nothing was taken.
+  RESERVATION_STATUS_RELEASED = 3;
+}
+
+message Shortage {
+  int64 product_id = 1;
+  int32 requested = 2;
+  int32 available = 3;
+}
+
+message ReserveResponse {
+  string reservation_id = 1;
+  ReservationStatus status = 2;
+  // Only filled when status is REJECTED.
+  repeated Shortage shortages = 3;
+}
+
+message ReleaseRequest {
+  string reservation_id = 1;
+}
+
+message ReleaseResponse {
+  // True when this call returned units to stock; false when there was
+  // nothing to return (already released, or never reserved).
+  bool released = 1;
+}
+
+message SetStockRequest {
+  int64 product_id = 1;
+  int32 quantity = 2;
+}
+
+message SetStockResponse {
+  StockLevel level = 1;
+}
