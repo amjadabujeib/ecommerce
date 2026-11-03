@@ -1,0 +1,33 @@
+# Dependencies
+vendor/
+node_modules/
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Framework storage & caches
+storage/*.key
+storage/oauth-*.key
+storage/logs/
+storage/framework/
+storage/pail/
+public/storage
+public/hot
+public/build
+
+# Testing & tool caches
+.phpunit.result.cache
+.phpunit.cache/
+.phpactor.json
+_ide_helper.php
+Homestead.json
+Homestead.yaml
+
+# System & IDE files
+.DS_Store
+Thumbs.db
+*.log
+.vscode/
+.idea/
