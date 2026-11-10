@@ -55,6 +55,36 @@ These passes are functional acceptance evidence, not an exhaustive proof of all 
 
 Temporary test containers, network, named volumes, browser profile and budget proxy are removed after the final checks. Locally built images and ignored locked development dependencies may remain for subsequent work; no real services or databases were changed.
 
+## Shared compiled gRPC extension — 2026-11-11
+
+The user's `compose up --build` was rebuilding native gRPC independently for app
+and scheduler after the mutable PHP base tag changed. Those two project build
+processes were interrupted, without touching older project containers/databases.
+
+- Bundled the already tested gRPC 1.85.0 extension: **16,558,504 bytes raw,
+  6,654,667 bytes / 6.35 MiB compressed**. SHA-256, ABI, platform, source image
+  provenance, upgrade instructions and upstream license/notice are in the
+  [artifact directory](../../laravel-app/docker/php/extensions/README.md).
+- Pinned the compatible PHP 8.5.12 Debian/amd64 base by registry digest (manifest
+  existence verified without pulling layers). Removed the native gRPC installer.
+  Build checks ABI/platform, decompresses/checksums the file and loads version 1.85.0.
+- App and scheduler now share one `localhost/novacart-core:local` image. Compose
+  configuration and a dry-run verify one app-target build and scheduler reuse.
+- Current-source app image built successfully with **`--pull=never --network=none`**;
+  the new unpack/check/load step executed. The small PostgreSQL extension build
+  layer and Composer dependencies were cached. No gRPC compilation, image pull,
+  or dependency download was used for this verification.
+- The resulting image passed **88 Laravel tests / 400 assertions**, with
+  fail-on-warning/notice enabled, and real gRPC SetStock, GetStock, Reserve and
+  repeated Release calls against disposable Node/PostgreSQL containers.
+- A separate six-service Compose project started with cached images and
+  `--no-build`; image inspection confirmed app and scheduler use the identical
+  image ID. The full HTTP `verify-requirements.mjs` acceptance demo passed
+  against that deployment. Disposable resources were removed afterward.
+- Bundling changes runtime delivery only; stock ownership, public RPC/REST
+  contracts and the modular-monolith boundaries remain unchanged. Native ARM,
+  Alpine/musl and different PHP ABIs need their own compatible artifact.
+
 ## Historical investigation (superseded where noted)
 
 ## Scope and environment

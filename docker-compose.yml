@@ -6,7 +6,9 @@
 #
 services:
   app:
-    build: &core-build
+    image: localhost/novacart-core:local
+    pull_policy: never
+    build:
       context: ./laravel-app
       target: app
     restart: unless-stopped
@@ -51,7 +53,8 @@ services:
     # Forward signals to the CLI worker instead of relying on PHP as PID 1.
     init: true
     stop_signal: SIGTERM
-    build: *core-build
+    image: localhost/novacart-core:local
+    pull_policy: never
     restart: unless-stopped
     environment: *core-environment
     command: ["php", "artisan", "schedule:work"]

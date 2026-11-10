@@ -97,6 +97,14 @@ Open the customer/admin GUI at **http://localhost:8080/**. The REST API is at `h
 
 The `scheduler` container retries abandoned checkout reservations every minute, after a five-minute grace period. You can also run `docker compose exec app php artisan orders:recover-reservations` manually. Keep it running for automatic recovery.
 
+The PHP gRPC extension is already compiled and bundled in the repository as a
+**6.35 MiB compressed file**. Teammates need no separate extension download or
+manual installation: the Dockerfile checks and enables it. The PHP base is pinned
+to the compatible Debian/amd64 image. App and scheduler share one core image,
+so Compose builds it once. See the [artifact notes](laravel-app/docker/php/extensions/README.md)
+for compatibility, provenance and updates. A first setup still needs ordinary
+base images and locked application dependencies when those are not cached.
+
 ### Running Automated Test Suites
 ```bash
 # Run Laravel feature and security tests
