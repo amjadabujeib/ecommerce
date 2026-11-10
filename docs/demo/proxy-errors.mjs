@@ -17,3 +17,9 @@ for (const [status, path, options] of [
     if (status === 502) assert.equal(response.headers.get('retry-after'), '5');
     console.log(`PASS proxy ${status}: ${body.code}`);
 }
+
+const asset = await fetch(base + '/assets/shop.css');
+assert.equal(asset.status, 200);
+assert.equal(asset.headers.get('cache-control'), 'no-cache');
+assert.equal(asset.headers.get('x-content-type-options'), 'nosniff');
+console.log('PASS assets: stable CSS/JS paths require browser revalidation.');

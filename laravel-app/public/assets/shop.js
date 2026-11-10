@@ -2,6 +2,7 @@ const $ = (selector) => document.querySelector(selector);
 let token = sessionStorage.getItem('novacart-token');
 let user = null;
 let currentView = 'catalog';
+let catalogRequest = 0;
 const money = value => Number(value).toFixed(2);
 const node = (tag, text, className) => {
     const element = document.createElement(tag);
@@ -100,10 +101,13 @@ function productCard(product) {
     return card;
 }
 async function catalog(page = 1) {
+    const request = ++catalogRequest;
     const query = new URLSearchParams(new FormData($('#filters')));
     for (const [key, value] of [...query]) if (!value) query.delete(key);
     query.set('page', page);
     const result = await api(`/?${query}`);
+    // A slower earlier load must not overwrite a newer search or page.
+    if (request !== catalogRequest) return;
     const cards = result.data.map(product => {
         const card = productCard(product);
         card.append(action('Product details', async () => {

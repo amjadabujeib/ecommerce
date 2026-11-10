@@ -16,12 +16,14 @@ const ws = new WebSocket(page.webSocketDebuggerUrl);
 await new Promise(resolve => ws.addEventListener('open', resolve, {once: true}));
 let id = 0;
 const pending = new Map(); const errors = [];
+let heldCatalogResponse;
 ws.addEventListener('message', event => {
     const message = JSON.parse(event.data);
     if (message.id) {
         const promise = pending.get(message.id); pending.delete(message.id);
         if (message.error) promise.reject(new Error(message.error.message)); else promise.resolve(message.result);
     }
+    if (message.method === 'Fetch.requestPaused') heldCatalogResponse = message.params.requestId;
     if (message.method === 'Runtime.exceptionThrown') errors.push(message.params.exceptionDetails.text);
     if (message.method === 'Log.entryAdded' && message.params.entry.level === 'error') errors.push(message.params.entry.text);
 });
@@ -41,7 +43,7 @@ const click = selector => evaluate(`document.querySelector(${JSON.stringify(sele
 const fill = (selector, value) => evaluate(`document.querySelector(${JSON.stringify(selector)}).value = ${JSON.stringify(value)}`);
 async function form(selector, values) {
     for (const [name, value] of Object.entries(values)) await fill(`${selector} [name="${name}"]`, value);
-    await evaluate(`document.querySelector(${JSON.stringify(selector)}).requestSubmit()`);
+    await evaluate(`(() => { const form = document.querySelector(${JSON.stringify(selector)}); form.requestSubmit(form.querySelector('button:not([type]), button[type="submit"]')); })()`);
 }
 const run = Date.now().toString();
 const fixtureDirectory = await mkdtemp(join(tmpdir(), 'novacart-browser-'));
@@ -49,6 +51,7 @@ const imagePath = join(fixtureDirectory, 'product.png');
 await writeFile(imagePath, Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64'));
 try {
     await send('Runtime.enable'); await send('Log.enable'); await send('Page.enable');
+    await send('Network.enable'); await send('Network.setCacheDisabled', {cacheDisabled: true});
     await send('Page.navigate', {url: base});
     await wait(`document.querySelector('#products .card') && !document.querySelector('#products button')?.disabled`);
     await click('[data-view="account"]');
@@ -65,12 +68,21 @@ try {
     await evaluate(`document.querySelector('#admin-products img').scrollIntoView()`);
     await wait(`document.querySelector('#admin-products img')?.naturalWidth > 0`);
     console.log('PASS admin GUI: sign in, category creation, product/image creation and rendering, dashboard');
-    await click('#logout'); await wait(`document.querySelector('#logout').hidden`);
+    await click('#logout'); await wait(`document.querySelector('#notice').textContent === 'Signed out.'`);
     await click('[data-view="account"]');
+    // Hold the initial catalog response so a later filtered request finishes first.
+    await send('Fetch.enable', {patterns: [{urlPattern: `${base}/api/v1/?page=1`, requestStage: 'Response'}]});
     await form('#register', {username: `browser${run}`, email: `browser${run}@example.com`, password: 'VerificationOnly123!', password_confirmation: 'VerificationOnly123!'});
     await wait(`document.querySelector('#account-link').textContent === 'browser${run}'`);
+    for (let attempt = 0; attempt < 100 && !heldCatalogResponse; attempt++) await sleep(50);
+    assert.ok(heldCatalogResponse, 'Initial catalog response was intercepted.');
     await form('#filters', {q: `Browser product ${run}`, category});
     await wait(`document.querySelectorAll('#products .card').length === 1 && document.querySelector('#products').textContent.includes('Browser product ${run}')`);
+    await send('Fetch.continueRequest', {requestId: heldCatalogResponse});
+    await send('Fetch.disable');
+    await wait(`!document.querySelector('#register button').disabled`);
+    assert.equal(await evaluate(`document.querySelectorAll('#products .card').length`), 1, 'An older catalog response must not overwrite the filtered results.');
+    console.log('PASS catalog GUI: a delayed earlier response preserves the newer search results.');
     await evaluate(`Array.from(document.querySelectorAll('#products button')).find(button => button.textContent === 'Add to cart').click()`);
     await wait(`document.querySelector('#notice').textContent.includes('added to your cart')`);
     await click('[data-view="cart"]');
