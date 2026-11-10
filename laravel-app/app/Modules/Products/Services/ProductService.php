@@ -4,12 +4,10 @@ namespace App\Modules\Products\Services;
 
 use App\Modules\Inventory\Contracts\InventoryGateway;
 use App\Modules\Inventory\Exceptions\InventoryUnavailableException;
-use App\Modules\Orders\Enums\OrderStatus;
-use App\Modules\Orders\Models\Order;
-use App\Modules\Products\Events\ProductRemoved;
-use App\Modules\Products\Exceptions\ProductHasPendingOrdersException;
 use App\Modules\Products\Models\Product;
-use Illuminate\Database\Eloquent\Collection;
+use App\Modules\Products\PublicApi\Events\ProductDeleting;
+use App\Modules\Products\PublicApi\Events\ProductRemoved;
+use App\Modules\Products\PublicApi\ProductHasPendingOrdersException;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
@@ -157,19 +155,6 @@ final class ProductService
     }
 
     /**
-     * @param  list<int>  $productIds
-     * @return Collection<int, Product> keyed by product id
-     */
-    public function findMany(array $productIds): Collection
-    {
-        return Product::query()
-            ->with('category')
-            ->whereIn('id', $productIds)
-            ->get()
-            ->keyBy('id');
-    }
-
-    /**
      * Catalogue totals for the admin dashboard. stock_units is null when the
      * inventory service cannot be reached.
      *
@@ -209,16 +194,10 @@ final class ProductService
             // Lock the row so two administrators cannot delete it at once.
             $lockedProduct = Product::query()->lockForUpdate()->findOrFail($product->getKey());
 
-            $pendingOrders = Order::query()
-                ->where('status', OrderStatus::Pending)
-                ->whereHas('items', fn ($query) => $query->where('product_id', $lockedProduct->id))
-                ->count();
+            $deletion = new ProductDeleting($lockedProduct->id, $lockedProduct->title);
+            event($deletion);
 
-            if ($pendingOrders > 0) {
-                throw new ProductHasPendingOrdersException($lockedProduct->title, $pendingOrders);
-            }
-
-            if ($lockedProduct->orderItems()->exists()) {
+            if ($deletion->retainsHistory()) {
                 $lockedProduct->delete();
 
                 return false;

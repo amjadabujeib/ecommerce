@@ -2,7 +2,7 @@
 
 namespace App\Modules\Notifications\Notifications;
 
-use App\Modules\Orders\Models\Order;
+use App\Modules\Orders\PublicApi\OrderSummary;
 use Illuminate\Bus\Queueable;
 use Illuminate\Notifications\Notification;
 
@@ -13,7 +13,7 @@ final class OrderPlaced extends Notification
 {
     use Queueable;
 
-    public function __construct(private readonly Order $order) {}
+    public function __construct(private readonly OrderSummary $order) {}
 
     /**
      * @return list<string>
@@ -31,8 +31,8 @@ final class OrderPlaced extends Notification
         return [
             'type' => 'order_placed',
             'order_id' => $this->order->id,
-            'status' => $this->order->status->value,
-            'total_amount' => (string) $this->order->total_amount,
+            'status' => $this->order->status,
+            'total_amount' => (string) $this->order->totalAmount,
             'message' => "Your order #{$this->order->id} was placed successfully.",
         ];
     }

@@ -3,7 +3,6 @@
 namespace App\Modules\Orders\Http\Resources;
 
 use App\Modules\Orders\Models\Order;
-use App\Modules\Users\Http\Resources\UserResource;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -23,7 +22,7 @@ final class OrderResource extends JsonResource
             'status_label' => $this->status->label(),
             'total_amount' => $this->total_amount,
             'items_count' => $this->whenCounted('items'),
-            'customer' => UserResource::make($this->whenLoaded('user')),
+            'customer' => $this->whenLoaded('customerProfile'),
             'items' => OrderItemResource::collection($this->whenLoaded('items')),
             'created_at' => $this->created_at?->toIso8601String(),
             'updated_at' => $this->updated_at?->toIso8601String(),

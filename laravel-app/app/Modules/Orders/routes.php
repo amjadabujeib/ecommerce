@@ -21,9 +21,9 @@ Route::middleware('auth:api')->group(function (): void {
     // Requests carry no session, so the cart lives in the database and is
     // tied to the token's user.
     Route::get('/cart', [CartController::class, 'index'])->name('cart.index');
-    Route::post('/cart/{product}', [CartController::class, 'store'])->name('cart.store');
-    Route::patch('/cart/{product}', [CartController::class, 'update'])->name('cart.update');
-    Route::delete('/cart/{product}', [CartController::class, 'destroy'])->name('cart.destroy');
+    Route::post('/cart/{product}', [CartController::class, 'store'])->whereNumber('product')->name('cart.store');
+    Route::patch('/cart/{product}', [CartController::class, 'update'])->whereNumber('product')->name('cart.update');
+    Route::delete('/cart/{product}', [CartController::class, 'destroy'])->whereNumber('product')->name('cart.destroy');
     Route::delete('/cart', [CartController::class, 'clear'])->name('cart.clear');
 
     Route::get('/checkout', [CheckoutController::class, 'index'])->name('checkout.index');

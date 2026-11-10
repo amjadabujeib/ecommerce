@@ -2,7 +2,7 @@
 
 namespace App\Modules\Notifications\Notifications;
 
-use App\Modules\Orders\Models\Order;
+use App\Modules\Orders\PublicApi\OrderSummary;
 use Illuminate\Bus\Queueable;
 use Illuminate\Notifications\Notification;
 
@@ -13,7 +13,7 @@ final class NewOrderReceived extends Notification
 {
     use Queueable;
 
-    public function __construct(private readonly Order $order) {}
+    public function __construct(private readonly OrderSummary $order) {}
 
     /**
      * @return list<string>
@@ -31,8 +31,8 @@ final class NewOrderReceived extends Notification
         return [
             'type' => 'new_order_received',
             'order_id' => $this->order->id,
-            'customer_id' => $this->order->user_id,
-            'total_amount' => (string) $this->order->total_amount,
+            'customer_id' => $this->order->userId,
+            'total_amount' => (string) $this->order->totalAmount,
             'message' => "New order #{$this->order->id} is waiting to be processed.",
         ];
     }
