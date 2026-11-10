@@ -2,6 +2,9 @@
 // with --headless --remote-debugging-port=19223 and a temporary user-data-dir.
 // ADMIN_PASSWORD, BASE_URL (shop origin), CDP_URL (default localhost:19223).
 import assert from 'node:assert/strict';
+import {mkdtemp, writeFile, rm} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
 import {setTimeout as sleep} from 'node:timers/promises';
 const base = process.env.BASE_URL || 'http://127.0.0.1:8080';
 const cdp = process.env.CDP_URL || 'http://127.0.0.1:19223';
@@ -41,6 +44,9 @@ async function form(selector, values) {
     await evaluate(`document.querySelector(${JSON.stringify(selector)}).requestSubmit()`);
 }
 const run = Date.now().toString();
+const fixtureDirectory = await mkdtemp(join(tmpdir(), 'novacart-browser-'));
+const imagePath = join(fixtureDirectory, 'product.png');
+await writeFile(imagePath, Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64'));
 try {
     await send('Runtime.enable'); await send('Log.enable'); await send('Page.enable');
     await send('Page.navigate', {url: base});
@@ -51,9 +57,14 @@ try {
     await form('#category-form', {name: `Browser ${run}`});
     await wait(`document.querySelector('#product-form select').textContent.includes('Browser ${run}')`);
     const category = await evaluate(`Array.from(document.querySelector('#product-form select').options).find(option => option.textContent === 'Browser ${run}').value`);
+    const {root} = await send('DOM.getDocument');
+    const {nodeId} = await send('DOM.querySelector', {nodeId: root.nodeId, selector: '#product-form [name=image]'});
+    await send('DOM.setFileInputFiles', {nodeId, files: [imagePath]});
     await form('#product-form', {title: `Browser product ${run}`, description: 'Browser acceptance fixture', price: '12.50', stock_quantity: '3', category_id: category});
     await wait(`document.querySelector('#admin-products').textContent.includes('Browser product ${run}')`);
-    console.log('PASS admin GUI: sign in, category creation, product creation, dashboard');
+    await evaluate(`document.querySelector('#admin-products img').scrollIntoView()`);
+    await wait(`document.querySelector('#admin-products img')?.naturalWidth > 0`);
+    console.log('PASS admin GUI: sign in, category creation, product/image creation and rendering, dashboard');
     await click('#logout'); await wait(`document.querySelector('#logout').hidden`);
     await click('[data-view="account"]');
     await form('#register', {username: `browser${run}`, email: `browser${run}@example.com`, password: 'VerificationOnly123!', password_confirmation: 'VerificationOnly123!'});
@@ -84,4 +95,4 @@ try {
     await wait(`document.documentElement.scrollWidth <= 390`);
     assert.deepEqual(errors, [], 'Browser errors');
     console.log('PASS responsive layout: no horizontal overflow at 390px; no browser runtime/CSP errors');
-} finally { ws.close(); }
+} finally { ws.close(); await rm(fixtureDirectory, {recursive: true, force: true}); }

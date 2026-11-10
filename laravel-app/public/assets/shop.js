@@ -90,11 +90,10 @@ function pagination(selector, result, load) {
 }
 function productCard(product) {
     const card = node('article', undefined, 'card');
-    if (product.image_url) {
+    if (product.image_path) {
         const image = node('img');
-        // Images are served by this application's storage route.
-        const url = new URL(product.image_url, location.origin);
-        if (url.origin === location.origin) image.src = url.href;
+        // Storage is same-origin even when APP_URL uses a different hostname.
+        image.src = `/storage/${product.image_path.split('/').map(encodeURIComponent).join('/')}`;
         image.alt = product.title; image.loading = 'lazy'; card.append(image);
     } else card.append(node('div', 'N', 'placeholder'));
     card.append(node('p', `${product.category?.name || 'Uncategorized'} · Category ${product.category?.id || ''}`), node('h3', product.title), node('p', product.description), node('div', money(product.price), 'price'), node('p', product.stock_quantity === null ? 'Availability temporarily unavailable' : `${product.stock_quantity} available`));
