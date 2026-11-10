@@ -2,6 +2,7 @@ import grpc from '@grpc/grpc-js';
 import protoLoader from '@grpc/proto-loader';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { protoPath } from './config.js';
+import { ReservationConflict } from './inventory.js';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAX_ITEMS = 100;
@@ -53,7 +54,9 @@ export function createServer({ inventory, artificialDelayMs = 0, log = defaultLo
       log({ method, ms: Date.now() - started, outcome: response.status ?? 'OK' });
       callback(null, response);
     } catch (error) {
-      const status = error instanceof InvalidArgument ? grpc.status.INVALID_ARGUMENT : grpc.status.INTERNAL;
+      const status = (error instanceof InvalidArgument || error instanceof ReservationConflict)
+        ? grpc.status.INVALID_ARGUMENT
+        : grpc.status.INTERNAL;
       log({ method, ms: Date.now() - started, outcome: grpc.status[status], error: error.message });
       callback({
         code: status,

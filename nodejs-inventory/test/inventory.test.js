@@ -78,6 +78,56 @@ describe('inventory service over gRPC', () => {
     assert.equal(await stockOf(30), 3);
   });
 
+  test('a reservation id cannot be reused for different quantities', async () => {
+    await inventory.call('SetStock', { product_id: 31, quantity: 5 });
+    const id = newId();
+    await inventory.call('Reserve', { reservation_id: id, items: [{ product_id: 31, quantity: 1 }] });
+
+    await assert.rejects(
+      inventory.call('Reserve', { reservation_id: id, items: [{ product_id: 31, quantity: 4 }] }),
+      { code: grpc.status.INVALID_ARGUMENT },
+    );
+    assert.equal(await stockOf(31), 4);
+  });
+
+  test('a rejected reservation replays its original shortages after replenishment', async () => {
+    await inventory.call('SetStock', { product_id: 32, quantity: 1 });
+    const request = { reservation_id: newId(), items: [{ product_id: 32, quantity: 2 }] };
+    const first = await inventory.call('Reserve', request);
+    await inventory.call('SetStock', { product_id: 32, quantity: 10 });
+
+    const retry = await inventory.call('Reserve', request);
+    assert.deepEqual(retry, first);
+    assert.equal(await stockOf(32), 10);
+    assert.equal((await inventory.call('Release', { reservation_id: request.reservation_id })).released, false);
+    assert.equal(await stockOf(32), 10);
+  });
+
+  test('equivalent reordered and duplicate lines replay the same reservation', async () => {
+    await inventory.call('SetStock', { product_id: 33, quantity: 5 });
+    await inventory.call('SetStock', { product_id: 34, quantity: 5 });
+    const id = newId();
+    await inventory.call('Reserve', {
+      reservation_id: id,
+      items: [{ product_id: 33, quantity: 1 }, { product_id: 34, quantity: 2 }, { product_id: 33, quantity: 1 }],
+    });
+    const retry = await inventory.call('Reserve', {
+      reservation_id: id,
+      items: [{ product_id: 34, quantity: 2 }, { product_id: 33, quantity: 2 }],
+    });
+    assert.equal(retry.status, 'RESERVATION_STATUS_RESERVED');
+    assert.equal(await stockOf(33), 3);
+    assert.equal(await stockOf(34), 3);
+  });
+
+  test('concurrent identical retries deduct stock once', async () => {
+    await inventory.call('SetStock', { product_id: 35, quantity: 5 });
+    const request = { reservation_id: newId(), items: [{ product_id: 35, quantity: 2 }] };
+    const results = await Promise.all(Array.from({ length: 10 }, () => inventory.call('Reserve', request)));
+    assert.ok(results.every((r) => r.status === 'RESERVATION_STATUS_RESERVED'));
+    assert.equal(await stockOf(35), 3);
+  });
+
   test('Release gives the units back exactly once', async () => {
     await inventory.call('SetStock', { product_id: 40, quantity: 5 });
     const id = newId();
