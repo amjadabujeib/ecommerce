@@ -15,7 +15,6 @@ use App\Modules\Products\PublicApi\CatalogProduct;
 use App\Modules\Products\PublicApi\InsufficientStockException;
 use App\Modules\Users\PublicApi\Actor;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Throwable;
 
@@ -38,6 +37,7 @@ final class CheckoutService
         private readonly Catalog $products,
         private readonly InventoryGateway $inventory,
         private readonly OrderPresentation $presentation,
+        private readonly ReservationRecovery $recovery,
     ) {}
 
     public function placeOrder(Actor $user): Order
@@ -60,14 +60,20 @@ final class CheckoutService
         // still be matched to (and released by) the same id.
         $reservationId = (string) Str::uuid();
 
-        $this->reserve($reservationId, $cart, $products);
+        $this->recovery->begin($reservationId);
 
         try {
-            $order = DB::transaction(fn (): Order => $this->createOrder($user, $cart, $products, $reservationId));
+            $order = DB::transaction(function () use ($user, $cart, $products, $reservationId): Order {
+                $this->recovery->lock($reservationId);
+                $this->reserve($reservationId, $cart, $products);
+                $order = $this->createOrder($user, $cart, $products, $reservationId);
+                $this->recovery->committed($reservationId);
+                return $order;
+            });
         } catch (Throwable $exception) {
             // The stock is held by the inventory but the order does not exist:
             // give the units back before reporting the failure.
-            $this->releaseQuietly($reservationId, 'the order could not be saved');
+            $this->recovery->release($reservationId);
 
             throw $exception;
         }
@@ -89,16 +95,7 @@ final class CheckoutService
      */
     private function reserve(string $reservationId, array $cart, array $products): void
     {
-        try {
-            $result = $this->inventory->reserve($reservationId, $cart);
-        } catch (InventoryUnavailableException $exception) {
-            // A call that timed out may still have reserved the stock on the
-            // other side. Releasing the same id is harmless if it did not, and
-            // stops the late reservation from taking stock if it arrives later.
-            $this->releaseQuietly($reservationId, 'the reservation did not complete');
-
-            throw $exception;
-        }
+        $result = $this->inventory->reserve($reservationId, $cart);
 
         if ($result->isReserved()) {
             return;
@@ -158,20 +155,4 @@ final class CheckoutService
         return $order->load('items');
     }
 
-    /**
-     * Best effort: the customer already gets an error for the original
-     * failure; a release that also fails is logged for follow-up.
-     */
-    private function releaseQuietly(string $reservationId, string $why): void
-    {
-        try {
-            $this->inventory->release($reservationId);
-        } catch (Throwable $exception) {
-            Log::error('Inventory reservation could not be released', [
-                'reservation_id' => $reservationId,
-                'why' => $why,
-                'error' => $exception->getMessage(),
-            ]);
-        }
-    }
 }

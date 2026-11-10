@@ -6,11 +6,11 @@
 #
 services:
   app:
-    build:
+    build: &core-build
       context: ./laravel-app
       target: app
     restart: unless-stopped
-    environment:
+    environment: &core-environment
       APP_NAME: NovaCart
       APP_ENV: production
       APP_DEBUG: "false"
@@ -38,6 +38,24 @@ services:
       db:
         condition: service_healthy
       inventory:
+        condition: service_healthy
+
+    healthcheck:
+      test: ["CMD", "php", "-r", "exit(@fsockopen('127.0.0.1', 9000) ? 0 : 1);"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  # Retries durable checkout compensation without a message broker.
+  scheduler:
+    build: *core-build
+    restart: unless-stopped
+    environment: *core-environment
+    command: ["php", "artisan", "schedule:work"]
+    volumes:
+      - storage:/var/www/html/storage
+    depends_on:
+      app:
         condition: service_healthy
 
   web:
