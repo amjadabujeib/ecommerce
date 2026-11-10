@@ -2,7 +2,7 @@
 
 Coursework project for **Internet Applications (2026)** at Damascus University.
 
-> **Verification status (2026-11-10):** Requirements 1–2 technical acceptance passes, including the customer/admin GUI, source image builds, 88 Laravel tests (400 assertions), 15 real inventory tests, race/outage/compensation/recovery demonstrations and persistent-volume restart checks. Team participation is set aside by request. See [the verification record](docs/verification/requirements-1-2.md) and [SPEC.md](SPEC.md). [Requirements 1–2](docs/requirements/requirements-1-2.md) and [requirement 3](docs/requirements/requirement-3.md) are converted from the presentations. Requirement 3 remains deferred.
+> **Verification status (2026-11-11):** Requirements 1–2 technical acceptance passes, including the dark customer/admin GUI, source image builds, 88 Laravel tests (400 assertions), 15 real inventory tests, race/outage/compensation/recovery demonstrations and persistent-volume restart checks. Team participation is set aside by request. See [the final verification report](docs/verification/final-requirements-1-2.md) and [SPEC.md](SPEC.md). [Requirements 1–2](docs/requirements/requirements-1-2.md) and [requirement 3](docs/requirements/requirement-3.md) are converted from the presentations. Requirement 3 remains deferred.
 
 This project targets a distributed, polyglot e-commerce platform for **Requirement 1 (API Design & Security)** and **Requirement 2 (Inter-Service Communication & Inventory Safety)**.
 
@@ -94,6 +94,10 @@ distributed-ecommerce/
 docker compose up -d --build
 ```
 Open the customer/admin GUI at **http://localhost:8080/**. The REST API is at `http://localhost:8080/api/v1`; `GET /up` is the application health endpoint. Set `ADMIN_EMAIL` and a nonempty `ADMIN_PASSWORD` in your environment before first startup to seed the administrator. Customers register in the GUI.
+
+The GUI uses a dark palette. After a web image update, hard-refresh the browser.
+If Podman keeps an older web container, apply the rebuilt image with
+`docker compose up -d --no-deps --no-build --force-recreate web`.
 
 The `scheduler` container retries abandoned checkout reservations every minute, after a five-minute grace period. You can also run `docker compose exec app php artisan orders:recover-reservations` manually. Keep it running for automatic recovery.
 

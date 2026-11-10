@@ -2,6 +2,8 @@
 
 Date: 2026-11-10. Current branch: `test/requirements-1-2-acceptance`, based on merged main commit `5e06d54`. Initial runtime work was performed on the former `fix/requirements-1-2-verification` branch.
 
+The [final audit on 2026-11-11](final-requirements-1-2.md) is the latest requirement-by-requirement sign-off, including the dark GUI and final review fixes. Earlier results below remain historical evidence.
+
 ## Current technical acceptance — wrap-up on 2026-11-10
 
 **Requirements 1–2 technical acceptance passes, including the basic GUI requested by the user.** Team participation is excluded from this wrap-up at the user's request. Requirement 3 remains deferred. No push or merge into main was performed; focused commits remain on the acceptance branch.

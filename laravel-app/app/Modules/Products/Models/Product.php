@@ -37,8 +37,8 @@ class Product extends Model
     public const int LOW_STOCK_THRESHOLD = 5;
 
     /**
-     * Units available, as reported by the inventory service. Stock is not a
-     * column of this table: the inventory service owns it. Null until
+     * Units available, owned by the inventory service. The legacy database
+     * stock_quantity column is unused and is not fillable. Null until
      * ProductService::withStock() fills it in, or when the service is down.
      */
     public ?int $availableStock = null;

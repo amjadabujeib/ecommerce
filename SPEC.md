@@ -169,7 +169,7 @@ Provide `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, a suitable `
 
 The source slide excludes evaluation of frontend **design**, not explicitly a working frontend. The agreed repository scope includes a basic GUI at `/`, using the existing `/api/v1` endpoints. Customers can register/sign in, search/filter/page products, view images and availability, manage quantities in their cart, check out, read their orders, and manage notifications. Administrators can manage categories and products (including images/stock), inspect the dashboard and all orders, and change status. Visual polish is outside the acceptance gate.
 
-The interface uses local JavaScript/CSS without a frontend package install or build service. User-supplied text is rendered with DOM text nodes. JWTs live in per-tab `sessionStorage`, refresh through the API and are removed on sign-out. All authorization, ownership, prices and stock decisions remain server-side. The shop CSP permits same-origin scripts/styles/images/connections; API CSP remains `default-src 'none'`. Proxy-generated errors use the JSON envelope, including 413 oversized requests and 502 unavailable PHP. Application FastCGI errors keep Laravel's response body.
+The interface uses a dark palette and local JavaScript/CSS without a frontend package install or build service. Catalog rendering keeps the latest request so delayed earlier responses cannot overwrite a newer filter/page. Stable asset paths require browser revalidation after deployments. User-supplied text is rendered with DOM text nodes. JWTs live in per-tab `sessionStorage`, refresh through the API and are removed on sign-out. All authorization, ownership, prices and stock decisions remain server-side. The shop CSP permits same-origin scripts/styles/images/connections; API CSP remains `default-src 'none'`. Proxy-generated errors use the JSON envelope, including 413 oversized requests and 502 unavailable PHP. Application FastCGI errors keep Laravel's response body.
 
 ## 4. Inventory contract, checkout, and failure semantics
 
@@ -226,22 +226,24 @@ Existing artifacts:
 - [Race demonstration](docs/demo/race-condition.mjs), [slow inventory](docs/demo/slow-inventory.mjs), and [persistent restart](docs/demo/persistence-restart.mjs).
 - [Durable recovery demonstration](docs/demo/reservation-recovery.php) and [browser acceptance](docs/demo/gui-browser.mjs).
 
-### Current implementation and verification — 2026-11-10
+### Current implementation and verification — 2026-11-11
 
 Work is on `test/requirements-1-2-acceptance`, based on merged main `5e06d54`, with focused progressive commits. Main has not been changed or pushed.
 
 **Architecture:** a modular Laravel monolith plus the independent inventory service required by requirement 2. Core modules share one runtime/database and communicate through acyclic public interfaces and snapshot events. The scheduler runs the same monolith; it is not a new domain service. The source dependency guard passes.
+
+The [final requirement-by-requirement audit](docs/verification/final-requirements-1-2.md) reran the technical gate on 2026-11-11, including the dark GUI, all 33 documented API routes, failure cases and full-stack persistence.
 
 Technical requirements 1–2 and the agreed basic GUI have passing acceptance evidence:
 
 - App, web and inventory images built from source using cached base/native layers and locked dependencies; final app/web builds also passed with networking disabled. Six isolated containers booted with migrations, seeding and scheduled recovery.
 - **88 Laravel tests, 400 assertions**, with failure-on-warning/notice enabled, and **15 real gRPC/PostgreSQL tests** passed.
 - Real HTTP security/catalog/order/notifications and module-boundary demos passed. Last-unit test: ten buyers, one 201, nine 409s, one persisted order, stock zero.
-- Stopped inventory returned structured 503 in 1050 ms with a 500 ms test per-call deadline; stock visibility recovered in 370 ms after restart. Slow-service and persistence-failure demonstrations passed.
+- Stopped inventory returned structured 503 in 1107 ms with a 500 ms test per-call deadline; stock visibility recovered in 946 ms after restart. Slow-service and persistence-failure demonstrations passed.
 - Real recovery demonstrated a process exiting with reserved stock, a failed release while inventory was down, and later stock restoration exactly once. Scheduler execution was observed.
 - Proxy-generated 413, 403 and 502 responses passed JSON/status/header checks. Browser tests passed customer checkout, notifications, administrator category/product/image creation and rendering, and order status changes, reload authentication, and a 390 px layout without overflow or runtime/CSP errors.
-- Complete restart of all six containers preserved six existing orders, catalog quantities and an existing JWT using disposable named database/storage volumes.
-- Dependency downloads totaled **31,284,418 bytes (29.84 MiB)** through a counting proxy capped at the approved 100 MiB. No images or host packages were downloaded.
+- Complete restart of all six containers preserved seven existing orders, catalog quantities and an existing JWT using disposable named database/storage volumes.
+- Earlier approved dependency downloads totaled **31,284,418 bytes (29.84 MiB)** through a counting proxy capped at the approved 100 MiB. No images or host packages were downloaded.
 
 [The verification record](docs/verification/requirements-1-2.md) preserves commands, detailed scope, earlier failures and current evidence. These are functional acceptance results, not proof against every distributed failure: recovery needs a reachable core database and eventual inventory availability; product administration and cancellation still span independent databases without a distributed transaction. No high-volume performance claim is made.
 
