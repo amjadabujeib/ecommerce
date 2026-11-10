@@ -7,8 +7,7 @@ use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
- * Adds the baseline security headers to every response. The application only
- * serves JSON, so the content security policy forbids loading anything.
+ * Baseline headers, with same-origin assets permitted on the shop page.
  */
 final class SecurityHeaders
 {
@@ -30,6 +29,10 @@ final class SecurityHeaders
 
         foreach (self::HEADERS as $name => $value) {
             $response->headers->set($name, $value);
+        }
+
+        if ($request->is('/')) {
+            $response->headers->set('Content-Security-Policy', "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'");
         }
 
         if ($request->isSecure()) {
