@@ -54,6 +54,42 @@ final class ReservationRecoveryTest extends TestCase
         $this->assertDatabaseHas('checkout_reservations', ['id' => $id, 'state' => 'committed']);
     }
 
+    public function test_checkout_timeout_after_remote_commit_releases_the_same_intent(): void
+    {
+        $customer = \App\Modules\Users\Models\User::factory()->create();
+        $product = Product::factory()->withStock(5)->create();
+        $this->actingAs($customer)->postJson(route('cart.store', $product), ['quantity' => 2])->assertOk();
+        $this->inventory->timeOutAfterNextReserve();
+        $this->postJson(route('orders.store'))->assertServiceUnavailable();
+        $this->assertDatabaseCount('orders', 0);
+        $this->assertSame(5, $this->inventory->stockOf($product));
+        $this->assertDatabaseHas('checkout_reservations', ['state' => 'released']);
+        $this->getJson(route('cart.index'))->assertJsonPath('data.item_count', 2);
+    }
+
+    public function test_checkout_persistence_failure_with_failed_compensation_is_recoverable(): void
+    {
+        $customer = \App\Modules\Users\Models\User::factory()->create();
+        $product = Product::factory()->withStock(5)->create();
+        $this->actingAs($customer)->postJson(route('cart.store', $product), ['quantity' => 2])->assertOk();
+        \App\Modules\Orders\Models\OrderItem::creating(function (): never {
+            $this->inventory->goDown();
+            throw new \RuntimeException('Deliberate order-line failure');
+        });
+        try {
+            $this->postJson(route('orders.store'))->assertStatus(500);
+        } finally {
+            \App\Modules\Orders\Models\OrderItem::flushEventListeners();
+            $this->inventory->comeBack();
+        }
+        $this->assertDatabaseCount('orders', 0);
+        $this->assertSame(3, $this->inventory->stockOf($product));
+        $this->assertDatabaseHas('checkout_reservations', ['state' => 'pending']);
+        $this->travel(6)->minutes();
+        $this->artisan('orders:recover-reservations')->assertSuccessful();
+        $this->assertSame(5, $this->inventory->stockOf($product));
+    }
+
     public function test_recovery_does_not_claim_recent_checkout_intents(): void
     {
         $id = (string) Str::uuid();
