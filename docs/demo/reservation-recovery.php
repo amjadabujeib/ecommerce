@@ -32,12 +32,16 @@ if ($mode === 'prepare') {
     $inventory->setStock($product, 5);
     $recovery->begin($id);
     $inventory->reserve($id, [$product => 2]);
-    DB::table('checkout_reservations')->where('id', $id)->update(['created_at' => now()->subMinutes(6)]);
     file_put_contents($file, json_encode(compact('id', 'product'), JSON_THROW_ON_ERROR));
     verify($inventory->availability([$product])[$product] === 3, 'Remote reservation did not take stock.');
     echo "PASS: durable intent and real remote reservation survive this process exiting.\n";
 } elseif (in_array($mode, ['unavailable', 'recover'], true)) {
     ['id' => $id, 'product' => $product] = json_decode(file_get_contents($file), true, flags: JSON_THROW_ON_ERROR);
+    if ($mode === 'unavailable') {
+        // Age the intent only after inventory is stopped. Otherwise the live
+        // scheduler could correctly recover it before the outage phase.
+        DB::table('checkout_reservations')->where('id', $id)->update(['created_at' => now()->subMinutes(6)]);
+    }
     $recovery->recover();
     $state = DB::table('checkout_reservations')->where('id', $id)->value('state');
     if ($mode === 'unavailable') {
