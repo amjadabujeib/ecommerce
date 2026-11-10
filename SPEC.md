@@ -1,289 +1,231 @@
-# Distributed Real-Time E-Commerce Platform — Requirements 1 & 2 Specification
+# NovaCart — Distributed Real-Time E-Commerce Platform
 
----
+## 1. Purpose, authority, and milestone order
 
-## Problem Statement
+Build a small, secure, distributed shop for the Damascus University Internet Applications project (2026). The course emphasizes architecture, security, performance, scaling, and monitoring; frontend appearance and feature count are not assessment goals.
 
-Modern online commerce systems require high availability, dependable data consistency, and resilient security under variable network conditions and high concurrency. Traditional monolithic applications frequently face severe vulnerabilities and design pitfalls:
+This specification separates **course requirements**, **repository design decisions**, and **observed implementation evidence**. A requirement or design described here is a target, not a claim that code exists or tests pass.
 
-1. **Access Control & Authorization Failures**: Systems vulnerable to Insecure Direct Object Reference (IDOR) allow unauthorized customers to view, modify, or cancel orders belonging to other users simply by manipulating identifiers in route parameters. Furthermore, lack of strict role boundaries enables non-privileged users to alter critical lifecycle states, such as artificially transitioning order statuses.
-2. **Double-Selling and Inventory Race Conditions**: When multiple customers attempt to purchase the last remaining unit of an item at the exact same millisecond, naive inventory updates permit race conditions, producing overselling, inventory inaccuracies, and inconsistent state.
-3. **Cascading Microservice Outages**: As organizations transition toward distributed services, network calls between services can fail or experience extreme latency. Without deterministic timeouts, atomic reservation semantics, and graceful degradation, inventory subsystem outages cascade across the platform, causing thread pool exhaustion and unhandled application crashes.
-4. **Lack of Standardized Contracts**: Inconsistent error response formats and untyped or undocumented inter-service protocols create fragility between backend layers and client consumers.
+Source presentations, converted slide by slide into English:
 
-From the user and evaluator perspective, this project must deliver a secure, polyglot, containerized e-commerce backend where security guarantees (IDOR mitigation, RBAC, brute-force protection) and distributed fault-tolerance (atomic gRPC inventory locking, race-condition immunity, graceful degradation) are provably verified.
+- [Requirements 1 and 2](docs/requirements/requirements-1-2.md): 15 slides; abbreviated below as **R12**.
+- [Requirement 3](docs/requirements/requirement-3.md): 12 slides; abbreviated below as **R3**.
 
----
+The presentations govern course obligations. This file governs the repository's chosen implementation of those obligations. README descriptions, collection assertions, comments, and example scripts are supporting evidence, not proof of correctness. When they disagree, reconcile them explicitly rather than silently changing the course scope.
 
-## Solution
+**Current priority:** establish and verify requirements 1 and 2 before implementing requirement 3. Requirement 3 is documented here for subsequent work. Requirements 4–6 are roadmap context only; their detailed specifications have not been supplied.
 
-The solution is a containerized, polyglot microservice e-commerce platform addressing **Requirement 1 (API Design & Security)** and **Requirement 2 (Inter-Service Communication)**:
+## 2. Course requirements and acceptance criteria
 
-1. **Modular Core API Backend (Laravel)**:
-   - Structured into four strictly separated domain modules: **Users**, **Products**, **Orders**, and **Notifications**.
-   - Exposes versioned RESTful APIs (`/api/v1/`) with standardized semantic HTTP status codes, uniform JSON error formats, and interactive Swagger/OpenAPI documentation.
-   - Secures communication via stateless JWT authentication with Role-Based Access Control (RBAC) supporting `customer` and `admin` roles.
-   - Enforces strict authorization policies preventing IDOR vulnerabilities (customers can only access their own orders; order state changes are strictly restricted to administrators).
-   - Applies security headers and rate-limiting throttling middleware on sensitive authentication endpoints.
+### Requirement 1 — API Design & Security
 
-2. **Dedicated Inventory Microservice (Node.js, gRPC)**:
-   - A standalone polyglot microservice written in Node.js with its own fully isolated PostgreSQL database container.
-   - Communicates exclusively with the core API via gRPC over HTTP/2 using a shared Protocol Buffers (`proto/inventory/v1/inventory.proto`) contract.
-   - Exposes atomic operations: querying available stock (`GetStock`), atomic multi-item stock reservation (`Reserve`), compensating stock release (`Release`), and administrative stock updates (`SetStock`).
-   - Implements transactional row locking (`SELECT ... FOR UPDATE` ordered by `product_id`) and database constraints (`CHECK (quantity >= 0)`) to guarantee ACID safety against race conditions and overselling during high-concurrency checkouts.
-
-3. **Two-Phase Order Coordination with Compensating Transactions**:
-   - Order creation executes an atomic reservation RPC against the Warehouse microservice before persisting the order in the core database.
-   - If stock is insufficient, the checkout request is immediately rejected.
-   - If the core application fails to persist the order record following a successful reservation, an automated compensating rollback RPC (`ReleaseStock`) is triggered to release the reserved stock immediately.
-
-4. **Resilience, Timeouts, and Graceful Degradation**:
-   - All inter-service gRPC invocations are bound by strict client deadlines/timeouts (e.g., 2000ms).
-   - If the Warehouse microservice is offline or times out, the core API catches the failure and returns a structured, user-friendly 503 Service Unavailable response without unhandled exceptions or downtime.
-
----
-
-## User Stories
-
-### User Management & Authentication
-
-1. As a new customer, I want to register an account with my name, email, and password, so that I can log in and place orders on the store.
-2. As a registered customer, I want to authenticate using my email and password, so that I receive a secure JWT token for subsequent API requests.
-3. As a store administrator, I want to authenticate with administrator credentials, so that I receive a JWT token bearing administrator privileges.
-4. As an API client, I want invalid login attempts to return a 401 Unauthorized error with a standardized JSON error message, so that I understand why authentication failed.
-5. As a system operator, I want login requests to be rate-limited (e.g., maximum 5 attempts per minute per IP), so that the application is protected against automated brute-force attacks.
-6. As an authenticated user, I want my JWT token to carry expiration claims, so that hijacked or obsolete tokens expire automatically.
-7. As an authenticated user, I want to send my JWT token in the `Authorization: Bearer <token>` header, so that the API can verify my identity on protected endpoints.
-8. As a customer, I want to be prevented from accessing administrative endpoints, so that privileged administrative operations remain secure.
-
-### Product Catalog & Media Management
-
-9. As an administrator, I want to create a new product specifying its title, description, price, category, and image file, so that it becomes available in the catalog.
-10. As an administrator, I want product image uploads to be validated for file type and size, so that malicious or excessively large files are rejected.
-11. As a customer, I want to view a paginated list of available products, so that I can browse items without loading excessive data in a single request.
-12. As a customer, I want to filter products by category, so that I can easily discover items relevant to my interests.
-13. As a customer, I want to retrieve details of a specific product by ID, so that I can review its specifications, pricing, and current stock level.
-14. As a customer viewing a product page, I want to see the real-time available stock count retrieved from the warehouse service, so that I know whether the item is available before attempting to purchase.
-15. As an API client, I want requesting a non-existent product ID to return a 404 Not Found status with the unified error format, so that missing resources are handled gracefully.
-
-### Order Processing & Inventory Reservation
-
-16. As a customer, I want to create an order by specifying one or more items and their desired quantities, so that I can purchase products.
-17. As an order processing service, I want to validate order line items before contacting the warehouse, so that malformed requests (zero or negative quantities, non-existent products) are rejected immediately.
-18. As a customer placing an order, I want the system to atomically reserve inventory for all items in my order via the warehouse service, so that all items are guaranteed before my order is confirmed.
-19. As a customer, I want my order to be rejected with a 422 Unprocessable Entity error if any requested product has insufficient stock, so that I am notified which item caused the failure.
-20. As a customer, I want my order to be saved with a `PENDING` status upon successful stock reservation, so that my order history reflects the purchase.
-21. As a customer placing an order, I want the system to automatically release my reserved inventory if an internal database error occurs during order persistence, so that stock is not permanently locked by a failed checkout.
-22. As a customer, I want to receive an order confirmation payload containing the order ID, status, item details, and total price upon successful checkout, so that I have a record of my purchase.
-
-### Order Visibility, Access Control & Authorization (IDOR Protection)
-
-23. As a customer, I want to view a list of all my previous orders, so that I can track my purchasing history.
-24. As a customer, I want to view the details and line items of any order that belongs to me, so that I can verify order information.
-25. As a customer, I want to be strictly blocked with a 403 Forbidden status when attempting to access an order belonging to another customer by modifying the ID parameter, so that my private purchase data is protected against IDOR attacks.
-26. As a customer, I want to be blocked with a 403 Forbidden status when attempting to update or alter an order's status, so that customers cannot fraudulently modify fulfillment states.
-27. As an administrator, I want to view any order in the platform, so that I can oversee store operations and customer inquiries.
-28. As an administrator, I want to update an order's status (e.g., from `PENDING` to `PROCESSING`, `COMPLETED`, or `CANCELLED`), so that the order advances through its fulfillment lifecycle.
-
-### Warehouse Service & High-Concurrency Inventory Safety
-
-29. As a warehouse service, I want to store inventory quantities in a dedicated, isolated database, so that inventory data is completely separated from the core application database.
-30. As a warehouse service, I want to expose a gRPC endpoint (`GetStock`) to query available quantity for a product, so that client services can query stock levels efficiently.
-31. As a warehouse service, I want to expose an atomic gRPC endpoint (`ReserveStock`) that reserves multiple items in a single transaction, so that orders either succeed in reserving all required items or reserve none.
-32. As a warehouse service, I want to expose a compensating gRPC endpoint (`ReleaseStock`) to restore reserved quantities, so that failed or cancelled orders do not leak inventory.
-33. As an e-commerce platform under high traffic, I want concurrent purchase requests targeting the last remaining unit of an item to be serialized via transactional locking, so that exactly one customer succeeds and all subsequent requests are rejected without overselling or negative stock.
-34. As a warehouse service, I want all multi-item database locks to be acquired in a consistent, deterministic order (e.g. sorted by Product ID), so that concurrent transactions do not cause database deadlocks.
-
-### Fault Tolerance, Resiliency & Observability
-
-35. As the core application, I want all gRPC calls to the warehouse service to execute with a strict timeout deadline (e.g., 2000ms), so that client requests do not hang indefinitely when the warehouse service is slow or unresponsive.
-36. As a customer, I want to receive a clean, structured 503 Service Unavailable response with an understandable error message if the warehouse service is offline, so that I am not exposed to raw system traces or unhandled server crashes.
-37. As an API developer, I want all responses to include standard HTTP security headers (e.g., `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Content-Security-Policy`), so that the API meets industry baseline security standards.
-38. As an API developer or QA engineer, I want to inspect and test all REST endpoints interactively via Swagger UI / OpenAPI documentation, so that I can explore and verify API contracts without external tools.
-39. As a course evaluator or developer, I want to run a concurrency verification script that dispatches simultaneous order requests against a single remaining stock unit, so that I can demonstrably verify race condition immunity.
-40. As a course evaluator or developer, I want to simulate a warehouse outage by stopping the warehouse container, so that I can verify the core application handles service downtime gracefully.
-
----
-
-## Implementation Decisions
-
-### Architectural Decisions
-
-1. **Modular Monolith for Core API (Laravel)**:
-   - The primary backend application is organized into four distinct modules:
-     - `Users`: Handles user registration, authentication, token issuance, and role definitions.
-     - `Products`: Manages catalog definitions, category filtering, pagination, and media storage.
-     - `Orders`: Manages cart-to-order transformation, status transitions, IDOR authorization policies, and distributed reservation orchestration.
-     - `Notifications`: Provides user notification records and triggers.
-   - Modules maintain distinct bounded contexts. Direct cross-module database joins are forbidden; modules interact exclusively via defined service layers and domain boundaries.
-
-2. **Polyglot Service Isolation**:
-   - The primary application is built with Laravel (PHP 8.5).
-   - The inventory microservice is an independent polyglot service built with Node.js (`@grpc/grpc-js`, `pg`).
-   - Each service manages its own dedicated database instance (`novacart` for Laravel, `inventory` for the microservice). The Laravel application has zero direct database connectivity to the inventory database.
-
-3. **Inter-Service Communication via gRPC**:
-   - All communication between the Core API and Inventory microservice is strictly executed via gRPC over HTTP/2.
-   - A single shared Protocol Buffers definition (`proto/inventory/v1/inventory.proto`) acts as the single source of truth contract.
-   - The Node.js service loads the `.proto` dynamically at runtime via `@grpc/proto-loader`.
-   - The Laravel application communicates through an `InventoryGateway` abstraction backed by generated PHP protobuf classes and a `FakeInventory` test double.
-
-4. **Containerization & Orchestration**:
-   - The complete environment is orchestrated using Docker Compose.
-   - Containers:
-     - `app`: Laravel Core API service (PHP 8.5-FPM with compiled `grpc` PECL extension).
-     - `web`: Nginx reverse proxy serving the REST API on port 8080.
-     - `db`: PostgreSQL 17 database for Core API.
-     - `inventory`: Node.js Inventory gRPC microservice on port 50051.
-     - `inventory-db`: Dedicated PostgreSQL 17 database for the Inventory service.
-
-### API Contracts & Schemas
-
-1. **REST API Versioning & Routing**:
-   - All REST API routes are prefixed with `/api/v1/`.
-   - Core endpoints:
-     - `POST /api/v1/auth/register` (Public)
-     - `POST /api/v1/auth/login` (Public, Rate-Limited)
-     - `GET /api/v1/products` (Public, Paginated, Filterable by `category`)
-     - `GET /api/v1/products/{id}` (Public)
-     - `POST /api/v1/products` (Admin Only, Multipart Form Data)
-     - `POST /api/v1/orders` (Authenticated Customer)
-     - `GET /api/v1/orders` (Authenticated User: Customer sees own, Admin sees all)
-     - `GET /api/v1/orders/{id}` (Authenticated User: IDOR-protected)
-     - `PATCH /api/v1/orders/{id}/status` (Admin Only)
-
-2. **Unified Error Response Format**:
-   - All non-2xx responses adhere to a consistent schema:
-     - `success`: Boolean (`false`)
-     - `error.code`: Machine-readable error code string (e.g., `VALIDATION_ERROR`, `UNAUTHORIZED`, `FORBIDDEN`, `RESOURCE_NOT_FOUND`, `INSUFFICIENT_STOCK`, `SERVICE_UNAVAILABLE`)
-     - `error.message`: Human-readable error description
-     - `error.details`: Array or dictionary of specific field validation errors (optional)
-     - `error.timestamp`: ISO-8601 timestamp
-
-3. **gRPC Protocol Buffer Contract (`proto/inventory/v1/inventory.proto`)**:
-   - Defines package `inventory.v1`.
-   - `InventoryService` RPCs:
-     - `rpc GetStock (GetStockRequest) returns (GetStockResponse);`
-       - Queries available stock levels for a batch of product IDs (`repeated int64 product_ids`).
-     - `rpc Reserve (ReserveRequest) returns (ReserveResponse);`
-       - Atomically reserves quantities for all line items under a caller-supplied `reservation_id` (UUID). Returns `RESERVED`, `REJECTED` (with shortages), or `RELEASED`. Idempotent.
-     - `rpc Release (ReleaseRequest) returns (ReleaseResponse);`
-       - Restores reserved stock units using the `reservation_id` if order persistence fails or an order is cancelled. Idempotent.
-     - `rpc SetStock (SetStockRequest) returns (SetStockResponse);`
-       - Allows administrative updates of absolute product stock counts.
-
-### Concurrency and Transactional Decisions
-
-1. **Inventory Concurrency Safety**:
-   - The Node.js inventory microservice executes stock reservations within an explicit SQL transaction with row-level locking (`SELECT quantity FROM stock WHERE product_id = $1 FOR UPDATE`).
-   - To avoid database deadlocks during multi-item orders, items in incoming reservation requests are sorted deterministically by Product ID prior to acquiring row locks.
-   - The database enforces `CHECK (quantity >= 0)`. If any requested item has insufficient quantity, the transaction is rolled back completely with status `REJECTED` and shortages reported (atomic all-or-nothing).
-
-2. **Compensating Rollback Flow (Saga Pattern)**:
-   - Order creation follows a two-phase sequence:
-     1. Client submits checkout request to `/api/v1/orders`.
-     2. Core API calls `InventoryService.Reserve` via gRPC with a unique UUID `reservation_id`.
-     3. If reservation fails (`REJECTED`), the Core API immediately terminates the request and returns `409 Conflict` (or `422 Unprocessable Entity`).
-     4. If reservation succeeds (`RESERVED`), the Core API attempts to persist the order and line items in its local database inside a database transaction.
-     5. If local persistence fails (e.g., database connection dropped or constraint violation), the Core API invokes `InventoryService.Release` via gRPC before returning `500 Internal Server Error`, ensuring no orphaned inventory reservations remain.
-
-3. **Timeouts & Graceful Outage Handling**:
-   - gRPC client calls from Laravel configure a gRPC context deadline of 2000ms (`INVENTORY_TIMEOUT_MS`).
-   - In the event of a `DEADLINE_EXCEEDED` or `UNAVAILABLE` gRPC status, the Core API logs the incident and returns a `503 Service Unavailable` response with `Retry-After: 5` header, preventing hanging processes and cascading client timeouts.
-
-### Security Decisions
-
-1. **Authentication & Authorization**:
-   - Token mechanism: JSON Web Token (JWT) with HMAC-SHA256 signature and 60-minute expiration.
-   - Roles: `customer` and `admin`.
-   - Policies & Gate Middleware:
-     - `OrderPolicy@view`: Allows access if `user.role === 'admin'` OR `order.user_id === user.id`. Rejects with `403 Forbidden` otherwise.
-     - `OrderPolicy@updateStatus`: Allows access only if `user.role === 'admin'`. Rejects with `403 Forbidden` otherwise.
-2. **Rate Limiting**:
-   - Applied to `/api/v1/auth/login`: 5 requests per minute per IP address, returning `429 Too Many Requests`.
-3. **Security Headers Middleware**:
-   - Injects standard security headers:
-     - `X-Content-Type-Options: nosniff`
-     - `X-Frame-Options: DENY`
-     - `X-XSS-Protection: 1; mode=block`
-     - `Strict-Transport-Security: max-age=31536000; includeSubDomains`
-     - `Content-Security-Policy: default-src 'self'`
-
----
-
-## Testing Decisions
-
-### What Makes a Good Test
-
-Tests must verify observable system behavior from external interfaces rather than inspecting internal implementation details. Tests should:
-- Issue real HTTP or gRPC requests and assert against HTTP status codes, JSON payload envelopes, and headers.
-- Verify security boundaries by demonstrating that unauthorized or forged requests fail with deterministic error codes (`401`, `403`, `429`).
-- Verify data consistency across distributed boundaries by testing state changes after transactions and rollback compensation.
-- Avoid mocking internal domain logic where real containerized service interactions are critical to validating architectural requirements.
-
-### Testing Seams
-
-The platform is tested at three distinct seams, prioritizing the highest possible integration seam:
-
-1. **Primary Seam: External HTTP REST API (Highest Seam)**:
-   - Evaluates the entire integrated system end-to-end through HTTP calls.
-   - Tests cover:
-     - User registration, token acquisition, and role validation.
-     - Login rate-limiting threshold enforcement (asserting HTTP 429).
-     - Product catalog retrieval, pagination metadata, category filters, and file upload validation.
-     - Customer order placement and retrieval.
-     - **IDOR Access Verification**: An authenticated customer attempts to access `/api/v1/orders/{other_customer_order_id}` and receives HTTP 403 Forbidden.
-     - **Role Authorization Verification**: An authenticated customer attempts to invoke `PATCH /api/v1/orders/{id}/status` and receives HTTP 403 Forbidden.
-     - **Graceful Fault Injection**: With the warehouse container stopped, checkout requests return HTTP 503 Service Unavailable with the unified error structure.
-
-2. **Secondary Seam: gRPC Service Interface Boundary**:
-   - Tests the Node.js Inventory microservice directly via gRPC client calls and integration test suite (`npm test`).
-   - Tests cover:
-     - Initial stock queries (`GetStock`).
-     - Multi-item atomic reservations (`Reserve`) verifying all-or-nothing behavior and idempotency.
-     - Compensating release calls (`Release`) verifying that inventory levels accurately increment back to original amounts.
-
-3. **Concurrency & Race Condition Test Harness**:
-   - A dedicated asynchronous test script (`docs/demo/race-condition.mjs`) that sets a test product's stock count to exactly 1 unit in the warehouse.
-   - Dispatches simultaneous HTTP checkout requests at the exact same millisecond.
-   - Asserts that **exactly one** request returns `201 Created`, while all other requests receive `409 Conflict`.
-   - Asserts that the final stock count in the inventory database is exactly 0 and never drops into negative numbers.
-
-### Prior Art
-
-- Laravel Feature Tests using `Tests\TestCase` and PHPUnit HTTP assertions (`assertStatus`, `assertJsonStructure`, `assertForbidden`).
-- Node.js test runner verifying transactional SQL isolation and row-level locking.
-- Postman / Newman test collections runnable against containerized environments.
-
----
-
-## Out of Scope
-
-The following features and concerns are explicitly out of scope for Requirements 1 and 2:
-
-1. **Frontend User Interface & Visual Styling**: The project is evaluated exclusively on backend architecture, API standards, security, and inter-service communication. No client-side UI frameworks or CSS styling are evaluated.
-2. **Payment Gateway Integration**: Real or sandbox monetary payment providers (e.g., Stripe, PayPal, local bank APIs) are excluded. Order checkout advances directly to inventory reservation and confirmation without financial processing.
-3. **Advanced Caching (Requirement 3)**: Redis caching layers and read-through caching for product catalogs will be introduced in subsequent milestones.
-4. **Asynchronous Message Queues & Real-Time WebSockets (Requirement 4)**: Background queue workers (RabbitMQ/Kafka) and real-time push notifications are reserved for milestone 4.
-5. **Horizontal Scaling & Load Balancing (Requirement 5)**: Multi-replica deployments and reverse proxy load balancing algorithms will be addressed in milestone 5.
-6. **Distributed Tracing & APM Dashboards (Requirement 6)**: Centralized metric aggregation (Prometheus, Grafana) and OpenTelemetry distributed tracing will be addressed in milestone 6.
-7. **Complex E-Commerce Domain Features**: Customer product reviews, promotional coupons, discount engines, multi-currency conversion, and shipment tracking integrations.
-
----
-
-## Further Notes
-
-### Team Organization & Task Alignment
-
-In accordance with the team plan, responsibilities are distributed across five team members:
-- **Member A (Infrastructure)**: Repository structure, protected `main` branch rules, Docker Compose configuration for all containers, unified error response middleware, and HTTP security headers.
-- **Member B (Users & Security)**: User registration, JWT authentication, RBAC middleware, login rate-limiting, and Laravel gRPC client connection with timeout handling.
-- **Member C (Products & Documentation)**: Product catalog endpoints, image storage handling, pagination/filtering, OpenAPI/Swagger interactive documentation, and high-concurrency race condition testing script.
-- **Member D (Orders & Notifications)**: Order creation and viewing, IDOR prevention policies, administrative status transition controls, notification module structure, and end-to-end two-phase reservation orchestration.
-- **Member E (Inventory Service)**: Standalone Node.js microservice architecture, Protocol Buffers contract implementation, atomic gRPC reservation and release logic, row-level locking for race-condition prevention, and Laravel gateway integration.
-
-### Codebase & Development Standards
-
-- **Git Workflow**: A single shared GitHub repository with a protected `main` branch. Direct commits to `main` are restricted. Every change must be delivered via a Pull Request (PR) reviewed and approved by at least one teammate.
-- **Participation**: Every team member mustAuthor and merge at least one PR per requirement.
-- **Collective Ownership**: During university evaluation interviews, any team member may be questioned regarding any portion of the architecture, necessitating complete shared understanding of all modules.
+| ID | Course obligation | Acceptance evidence | Source |
+| --- | --- | --- | --- |
+| R1-01 | Register users; add/display products and images; create orders, manage inventory, track status | Demonstrate these functions through documented API requests | R12 slide 2 |
+| R1-02 | Organize the core application into Users, Products, Orders, Notifications | Four domain modules with clear responsibilities and wiring; explain boundaries during assessment | R12 slide 5 |
+| R1-03 | Run the complete project in separate Docker containers | A clean build and startup of the complete stack, persistent databases, reachable API | R12 slide 5 |
+| R1-04 | Product creation with image, listing, category filtering, pagination | Valid upload displays with the product; filters return matching records; pagination has stable metadata | R12 slide 6 |
+| R1-05 | Create/display orders and change their status | Customer creates and reads their order; administrator changes status according to the documented lifecycle | R12 slide 6 |
+| R1-06 | REST version in the path, correct HTTP codes, one error format | All API routes share `/api/v1`; success and failure responses follow the selected contract | R12 slide 6 |
+| R1-07 | Easily executable API documentation | Postman Collection, OpenAPI/Swagger, or equivalent covers the implemented interfaces and required demonstrations | R12 slide 6 |
+| R1-08 | JWT authentication and role enforcement | Protected routes reject missing/invalid/expired tokens; public registration cannot grant admin privileges | R12 slide 7 |
+| R1-09 | Customers see only their own orders; only admins change status | With two customers, foreign order read returns 403; customer status mutation returns 403 with no data changes; admin operations succeed | R12 slides 7–8 |
+| R1-10 | Limit login attempts and provide basic security headers | Demonstrate 429 after the configured allowance; inspect security headers on successful and failed responses | R12 slide 7 |
+
+The course permits the team to choose the language/framework. It requires testable documentation, not Swagger specifically. It does not specify an exact login threshold, error envelope, upload limit, or set of order statuses; those are repository decisions below.
+
+### Requirement 2 — Inter-Service Communication
+
+| ID | Course obligation | Acceptance evidence | Source |
+| --- | --- | --- | --- |
+| R2-01 | Independent inventory service in a different language or framework, owning a separate database | Core accesses inventory only over gRPC through a shared `.proto`; no direct inventory SQL or shared stock table | R12 slides 9–10 |
+| R2-02 | Contract supports query, reserve, return quantity | Real gRPC requests demonstrate all three operations; existing additional `SetStock` supports administration | R12 slide 11 |
+| R2-03 | Product details retrieve available quantity from warehouse | Changing warehouse stock changes the displayed quantity; catalog storage is not the stock authority | R12 slide 11 |
+| R2-04 | One request reserves all items before order creation | A multi-item order either reserves all quantities or none; rejected reservation creates no order | R12 slide 11 |
+| R2-05 | Insufficient stock rejects checkout with a clear message | HTTP 409 identifies shortages; local order and all inventory quantities remain unchanged on rejection | R12 slide 12 |
+| R2-06 | Every call has a deadline; stopped/slow warehouse gets a clear response | Real outage and slow-service demonstrations finish within a measured bounded interval; checkout returns structured 503 | R12 slides 12–13 |
+| R2-07 | Return reserved quantity when saving the order fails | Force local persistence failure after successful reservation; no order is committed and all reserved stock is restored | R12 slide 12 |
+| R2-08 | Concurrent checkouts for the last unit yield exactly one winner | With stock 1 and multiple independent buyers, exactly one 201, all other requests 409, final stock 0, exactly one persisted order | R12 slide 13 |
+
+The course does not prescribe SQL lock syntax, UUIDs, exact HTTP failure codes, or a 2000 ms deadline. These are chosen implementation details that make the course behaviors concrete.
+
+## 3. Repository architecture decisions
+
+### Core, inventory, and containers
+
+- Laravel/PHP implements the REST core. The manifest currently requests Laravel `^13.17`; the app Dockerfile targets PHP 8.5. Use manifests/lockfiles and Dockerfiles for actual versions rather than older README labels. No framework upgrade is part of this specification work.
+- `laravel-app/app/Modules/` holds Users (identity/JWT/roles), Products (catalog/categories/images), Orders (cart/checkout/ownership/lifecycle), and Notifications (user messages). The Inventory integration module is an adapter to the independent service, not a replacement for one of the four domain modules.
+- Cross-module operations use explicit services/contracts. Database ownership remains clear. The course does not impose a blanket ban on joins within the core database.
+- Node.js inventory uses gRPC and PostgreSQL. The shared contract is [inventory.proto](proto/inventory/v1/inventory.proto), package `inventory.v1`.
+- Compose defines `app` (PHP-FPM), `web` (Nginx, host port 8080 by default), `db` (core PostgreSQL), `inventory` (internal gRPC port 50051), and `inventory-db` (separate PostgreSQL). Persistent volumes retain storage and database data.
+- The core has no direct inventory database access. Inventory product identifiers correspond to catalog identifiers without cross-database foreign keys.
+- Refresh/logout, cart, category administration, and persistent notifications are existing project design choices beyond the course's minimum endpoint list. Asynchronous notification delivery and WebSockets belong to a later milestone.
+
+### REST compatibility baseline
+
+Use the paths already exercised by the committed Postman collection and race script as the intended compatibility baseline. These paths are the compatibility baseline from the committed clients. Verify registered routes and behavior during implementation checks.
+
+All paths below are relative to `/api/v1`:
+
+| Access | Method and path | Purpose |
+| --- | --- | --- |
+| Public | `POST /register`, `POST /login` | Customer registration and JWT login |
+| Authenticated | `GET /me`, `POST /refresh`, `POST /logout` | Identity and token lifecycle |
+| Public | `GET /` | Catalog listing with `page`, `category`; optional existing `q` search |
+| Public | `GET /products/{id}` | Product details with live inventory quantity |
+| Admin | `POST /admin/products` | Multipart product/image creation |
+| Admin | `PUT /admin/products/{id}`, `DELETE /admin/products/{id}` | Existing catalog maintenance extension |
+| Admin | `PATCH /admin/products/{id}/stock` | Absolute quantity update through gRPC `SetStock` |
+| Admin | `GET/POST /admin/categories`, `PUT/DELETE /admin/categories/{id}` | Existing category management extension |
+| Customer | `GET/DELETE /cart`, `POST/PATCH/DELETE /cart/{productId}` | Manage the customer's cart |
+| Customer | `GET /checkout`, `POST /orders` | Preview and checkout the server-side cart |
+| Customer | `GET /orders`, `GET /orders/{id}` | Own orders; foreign existing order returns 403 |
+| Admin | `GET /admin/orders`, `PATCH /admin/orders/{id}/status` | All orders and privileged status updates |
+| Authenticated | `GET /notifications`, `PATCH /notifications/{id}/read`, `POST /notifications/read-all` | Own notifications and read state |
+
+Do not introduce `/auth/login`, move product creation to `/products`, or move admin status updates to the customer namespace solely to match the old SPEC. Any deliberate route change must update clients, documentation, and tests together.
+
+Orders are created from the customer's cart (no client-supplied order prices). Validate positive integer quantities and existing product identifiers; resolve prices and total on the server and persist order-line price snapshots. Use exact monetary arithmetic. Product creation fields follow the collection: `title`, `description`, `price`, `category_id`, `image`, and initial `stock_quantity`. The upload target is JPG/PNG/WebP, at most 5 MB, validated by actual content/MIME and size.
+
+Use lowercase order statuses as documented in the collection: initial `pending`; transitions `pending -> completed`, `pending -> cancelled`, `completed -> cancelled`. Cancellation returns inventory at most once. Other transitions return 422. This lifecycle is a project choice, including cancellation of completed orders; adding fulfillment/payment semantics requires an explicit design change.
+
+### Response and security contract
+
+Successful resource responses use a `data` payload; registration/login include the `token` consumed by existing clients. Product details expose `stock_quantity`; paginated listings include navigation/metadata. Preserve the existing field schemas and reconcile executable documentation when interfaces change.
+
+Use the error envelope already asserted by the Postman collection and described in README:
+
+```json
+{
+  "status": 422,
+  "code": "validation_failed",
+  "message": "The given data was invalid.",
+  "errors": { "email": ["The email field must be a valid email address."] }
+}
+```
+
+`status` is the numeric HTTP status, `code` is a stable machine-readable string, `message` is safe for clients, and optional `errors` contains field errors. The same shape applies to authentication, authorization, validation, missing-resource, throttle, service, and internal failures. Production errors exclude stack traces and credentials. Do not introduce the old SPEC's incompatible `success/error/timestamp` envelope.
+
+| Situation | HTTP status |
+| --- | --- |
+| Resource/order created | 201 |
+| Read/update successful | 200; 204 allowed for documented bodyless deletions |
+| Missing/invalid/expired bearer token | 401 |
+| Incorrect login credentials (existing validation-style contract) | 422 |
+| Forbidden role or foreign existing order | 403 |
+| Missing resource | 404 |
+| Stock shortage or documented business conflict | 409 |
+| Invalid input, empty cart, invalid transition | 422 |
+| Rate limit exceeded | 429 |
+| Unexpected local persistence failure | 500 |
+| Inventory unavailable/deadline exceeded | 503 with `Retry-After: 5` |
+
+JWT uses Bearer authentication, HS256 by default, and a 60-minute default lifetime per `config/jwt.php`. Validate identity and current authorization; derive ownership from the authenticated user rather than submitted user IDs. Keep secrets in the environment. Refresh/logout blacklisting is a project choice and must be verified separately from basic JWT issuance.
+
+The existing `auth` limiter allows 6 requests per minute for normalized email plus IP; the global `api` limiter allows 60 per minute per authenticated identity or IP. Verify that sensitive routes actually attach these limiters. Test the auth limit without accidentally hitting the global limit first. Thresholds are project choices, not course numbers.
+
+Provide `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, a suitable `Referrer-Policy`, and a restrictive Content Security Policy appropriate to the served content. Apply HSTS when HTTPS is deployed. Exact header policy is a project decision; the course asks for basic security headers. Authorization must occur before inventory or other privileged side effects.
+
+## 4. Inventory contract, checkout, and failure semantics
+
+The `.proto` is the authority for RPC names and wire types. Use `Reserve` and `Release`, not the old SPEC's inconsistent `ReserveStock`/`ReleaseStock` names.
+
+| RPC | Chosen semantics |
+| --- | --- |
+| `GetStock` | Batch query by product IDs; unknown inventory products have quantity 0 |
+| `Reserve` | One caller-supplied UUID `reservation_id`, all order items in one atomic transaction; result `RESERVED`, `REJECTED` with shortages, or `RELEASED` |
+| `Release` | Return a reservation's stock once; repeated release is safe; an early release prevents a delayed reserve using that ID |
+| `SetStock` | Set an absolute nonnegative quantity for an authorized admin action routed through the core |
+
+Validate inventory requests independently of HTTP validation. Normalize duplicate product lines consistently and reject malformed/nonpositive quantities. A repeated reservation with the same ID and same normalized payload must not deduct stock twice; reuse with different items must be rejected clearly. Keep reservation outcome and stock changes consistent in one database transaction.
+
+Choose transactional row locking (`SELECT ... FOR UPDATE`) with locks acquired in sorted product-ID order, plus a database `CHECK (quantity >= 0)`. If any line is short, no line is deducted. Serialize reservation/release races by reservation ID as well as product rows; product locks alone do not establish reservation idempotency. Verify `SetStock`, reservation, and release do not lose concurrent updates.
+
+Checkout coordination is **reservation followed by local commit with compensation**, not a distributed two-phase commit protocol:
+
+1. Authenticate and validate the cart; snapshot requested items and authoritative prices.
+2. Generate a stable reservation UUID for this checkout attempt and call `Reserve` once for all items.
+3. On `REJECTED`, return 409 with shortages and create no order. `RELEASED` must not be treated as a successful reservation.
+4. On `RESERVED`, save the order and lines in a local transaction, associate its reservation UUID, then return 201 after commit.
+5. If saving fails, roll back the local transaction and invoke idempotent `Release` for that UUID. Verify stock restoration and return a structured local failure.
+6. Clear the cart and create notifications according to committed order state. A notification failure after commit must not release stock for an already committed order.
+
+Every RPC has an explicit deadline, default `INVENTORY_TIMEOUT_MS=2000`. Map unavailable/expired-deadline calls to a safe 503 response. Measure end-to-end duration, accounting for any compensation calls; a per-call deadline does not imply the entire HTTP request finishes in exactly 2000 ms.
+
+A timed-out reserve may have executed remotely. Use the same reservation UUID for cleanup/reconciliation; never blindly create a second reservation on retry. The early-release behavior in the `.proto` addresses delayed reserve arrival, but does not by itself solve process crashes or failed compensation. If release also fails, retain a durable recovery record and retry/reconcile it, or explicitly report that recovery as unimplemented. Never claim a best-effort release guarantees no leaked reservations under every failure.
+
+For catalog browsing during outage, the existing outage collection expects catalog data to remain available with `stock_quantity: null` (unknown), while checkout returns 503. An unknown quantity must not be presented as real zero or used as permission to accept an order. Successful product detail requests retrieve current quantity through `GetStock`.
+
+## 5. Verification gate for requirements 1 and 2
+
+Completion requires executable evidence, not just source files or mocked tests. Record commands, environment, assertions, and outcomes when this gate is run.
+
+| Check | Required observation |
+| --- | --- |
+| Complete startup | All service build contexts and providers exist; clean Docker build/start, migrations, seed and health checks succeed |
+| Core API/security | Registration/login, image validation, category filtering, pagination, cart checkout, status tracking, notifications, standardized errors and headers |
+| Required authorization proof | Two distinct customers; foreign order access and admin-only mutation fail without side effects; admin succeeds |
+| JWT and throttling | Missing/invalid/expired tokens rejected; public role escalation rejected; configured login allowance leads to 429 |
+| Real inventory contract | `GetStock`, multi-item atomic rejection/success, idempotent reserve/release, early release and duplicate payload handling |
+| Required last-unit proof | At least two buyers with independent carts; one 201, all others 409, final stock 0, one saved order |
+| Required outage proof | Stopped and slow inventory cases return bounded, structured failures; browse shows unknown stock; normal checkout recovers when service is available |
+| Compensation proof | Forced persistence failure after reservation restores every quantity, creates no order; failed cleanup is recoverable or explicitly recorded as a gap |
+| Documentation/workflow | Executable documentation matches routes; required teammate-reviewed PR participation evidence exists |
+
+Use Laravel HTTP tests for authorization, validation, and orchestration. An `InventoryGateway` fake can isolate core behavior, but cannot prove PostgreSQL locking, gRPC interoperability, or network deadlines. Verify those against the real Node.js/PostgreSQL service and run concurrency through the public API. SQLite tests cannot prove PostgreSQL concurrency behavior.
+
+Existing artifacts:
+
+- [Main Postman collection](docs/api/NovaCart.postman_collection.json).
+- [Outage Postman collection](docs/api/NovaCart-inventory-outage.postman_collection.json).
+- [Race demonstration](docs/demo/race-condition.mjs).
+
+### Implementation baseline — 2026-11-10
+
+Merged main at `5e06d54` contains all four core domains, migrations/tests, the inventory adapter and Node implementation. Earlier missing-file observations referred to the infrastructure-only branch, not merged main.
+
+The intended architecture is a modular Laravel monolith with a shared core database plus the independent inventory service required by requirement 2. The four domains run in process. Current source still uses cross-module ORM relationships and direct model/resource imports; those need an explicit public-interface cleanup.
+
+Source-level concerns to address and verify:
+
+- Successful reservation IDs are reused without comparing the item payload. Rejected attempts are not retained, allowing a replay to change its outcome after stock replenishment.
+- Failed compensation is logged without durable retry/reconciliation.
+- The HTTP race demo's exit status does not enforce every loser response, final stock, and persisted order count; cleanup needs disposable fixtures and reliable finalization.
+- Check service downtime, deadlines and recovery after inventory changes address, with real PHP-to-Node gRPC.
+- Run the acceptance gate with both core behavior tests and real PostgreSQL/gRPC integration evidence. Source/configuration presence alone does not establish readiness.
+
+Runtime verification is pending at this documentation baseline. Requirement 3 stays deferred until requirements 1 and 2 are established.
+
+## 6. Requirement 3 — deferred performance and caching milestone
+
+Implement after the requirements 1–2 verification gate passes. Preserve JWT/ownership protections, inventory authority, reservation atomicity, and bounded failure handling throughout optimization.
+
+| ID | Course obligation | Future acceptance evidence | Source |
+| --- | --- | --- | --- |
+| R3-01 | Measure, change one thing, measure again | Comparable baseline/after runs with explanations; unsupported speed claims do not count | R3 slides 3–4 |
+| R3-02 | Realistic database scale and query optimization | Hundreds of thousands of synthetic orders, recorded `EXPLAIN` plans, justified indexes/query changes, identified and fixed N+1 queries | R3 slide 6 |
+| R3-03 | Automatically replicated read-only database | Writes go to primary; eligible reads use replica; prove actual replication and read routing | R3 slide 7 |
+| R3-04 | Read-your-writes despite replication lag | User immediately sees a newly created entity and product changes; test with replication delay | R3 slides 7, 11 |
+| R3-05 | Redis caching for frequently read data | Defined keys and TTLs, correct invalidation after mutations, no stale product output | R3 slide 8 |
+| R3-06 | HTTP conditional caching | Product response has ETag; matching conditional request returns bodyless 304; mutation changes data/ETag | R3 slide 9 |
+| R3-07 | Reproducible load testing | Same k6/equivalent workload before/after; report p50, p95, p99 and requests/second; explain observed behavior | R3 slides 10–11 |
+
+Future implementation decisions to make from measured evidence:
+
+- Select slow endpoints, datasets, concurrency, duration, warmup, and comparable cache conditions. Record hardware/runtime settings, query counts, failures, and latency units. The course gives no numeric latency or throughput threshold.
+- Choose indexes from query plans and explain write/storage costs. Keep correctness checks alongside performance measurements.
+- Route consistency-sensitive reads to the primary or use another demonstrated read-your-writes mechanism. Define its scope across separate HTTP requests; same-request connection stickiness alone may not satisfy the demonstration.
+- Define Redis keys with all relevant pagination/filter/authorization dimensions. Invalidate after committed mutations. Prevent an old replica read from refilling a just-invalidated cache with stale data.
+- Keep the inventory service authoritative for reservation decisions. Cached availability never replaces atomic `Reserve`; separate cacheable catalog fields from changing stock as needed.
+- ETags must describe the actual selected representation, including stock if stock is included. Use `If-None-Match` for conditional requests. Keep private order/notification data out of shared public caches.
+- A bodyless 304 is a valid protocol response, not an error requiring the JSON error envelope.
+
+Redis, a read replica, synthetic bulk data, and load tests are documented future work here. This task does not install, provision, seed, or benchmark them.
+
+## 7. Scope and team workflow
+
+Requirements 1–2 exclude payment providers, frontend visual polish, discounts/reviews/shipping integrations, and requirement 3 optimizations. Basic Notifications remains a required module; only asynchronous/real-time delivery is deferred. Requirements 4–6 concern asynchronous/real-time processing, scaling/load distribution, and monitoring/fault tracing; specific broker/APM products are not mandated by the supplied decks.
+
+Course workflow: one Git repository, protected main branch, teammate-reviewed pull requests for every change, and at least one PR per member per requirement. Any member may be questioned about any component (R12 slide 14). Branch protection and participation require repository-host evidence, which has not been checked here.
+
+The earlier spec's A–E division can remain an indicative team plan: infrastructure; users/security; products/documentation; orders/notifications; inventory/gRPC. These assignments and branch names are not instructor requirements and do not limit collective responsibility.

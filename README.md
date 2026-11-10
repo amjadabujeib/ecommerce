@@ -2,7 +2,9 @@
 
 Coursework project for **Internet Applications (2026)** at Damascus University.
 
-This project delivers a distributed, polyglot e-commerce platform meeting all specifications for **Requirement 1 (API Design & Security)** and **Requirement 2 (Inter-Service Communication & Inventory Safety)**.
+> **Implementation status (2026-11-10):** Core and inventory code is merged. Requirements 1 and 2 still need the acceptance checks and source fixes described in [SPEC.md](SPEC.md). The presentations are converted in [requirements 1–2](docs/requirements/requirements-1-2.md) and [requirement 3](docs/requirements/requirement-3.md). Requirement 3 remains deferred.
+
+This project targets a distributed, polyglot e-commerce platform for **Requirement 1 (API Design & Security)** and **Requirement 2 (Inter-Service Communication & Inventory Safety)**.
 
 ---
 
@@ -31,8 +33,8 @@ Clients (Web / Mobile / QA) ───────────────► Ngi
 
 ### Key Technical Pillars
 
-1. **Modular Core API Backend (Laravel 11/12, PHP 8.5)**:
-   - Partitioned into 4 strictly decoupled domain modules under `laravel-app/app/Modules/`: `Users`, `Products`, `Orders`, and `Notifications`.
+1. **Modular Core API Backend (Laravel 13, PHP 8.5)**:
+   - Partitioned into 4 domain modules under `laravel-app/app/Modules/`: `Users`, `Products`, `Orders`, and `Notifications`.
    - Versioned REST APIs (`/api/v1/`) with unified JSON error envelopes: `{ "status": ..., "code": "...", "message": "...", "errors": {...} }`.
    - Stateless JWT authentication via `php-open-source-saver/jwt-auth` with refresh tokens and revocation blacklisting.
    - Role-Based Access Control (`customer` vs `admin`) and login rate limiting (6 requests/minute per account/IP).
