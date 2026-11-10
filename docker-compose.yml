@@ -48,6 +48,9 @@ services:
 
   # Retries durable checkout compensation without a message broker.
   scheduler:
+    # Forward signals to the CLI worker instead of relying on PHP as PID 1.
+    init: true
+    stop_signal: SIGTERM
     build: *core-build
     restart: unless-stopped
     environment: *core-environment
