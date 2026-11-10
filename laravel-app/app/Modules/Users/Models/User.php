@@ -5,6 +5,7 @@ namespace App\Modules\Users\Models;
 use App\Modules\Orders\Models\Cart;
 use App\Modules\Orders\Models\Order;
 use App\Modules\Users\Enums\UserRole;
+use App\Modules\Users\PublicApi\Actor;
 use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
@@ -21,7 +22,7 @@ use PHPOpenSourceSaver\JWTAuth\Contracts\JWTSubject;
 #[Fillable(['username', 'email', 'password'])]
 #[Hidden(['password', 'remember_token'])]
 #[UseFactory(UserFactory::class)]
-class User extends Authenticatable implements JWTSubject
+class User extends Authenticatable implements JWTSubject, Actor
 {
     /** @use HasFactory<UserFactory> */
     use HasFactory, Notifiable;

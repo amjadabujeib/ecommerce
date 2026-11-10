@@ -3,6 +3,7 @@
 namespace App\Modules\Orders\Models;
 
 use App\Modules\Orders\Enums\OrderStatus;
+use App\Modules\Orders\PublicApi\OrderSummary;
 use App\Modules\Orders\Policies\OrderPolicy;
 use App\Modules\Users\Models\User;
 use Database\Factories\OrderFactory;
@@ -41,6 +42,11 @@ class Order extends Model
     public function items(): HasMany
     {
         return $this->hasMany(OrderItem::class);
+    }
+
+    public function summary(): OrderSummary
+    {
+        return new OrderSummary($this->id, $this->user_id, $this->status->value, $this->status->label(), $this->total_amount);
     }
 
     public function isPending(): bool
