@@ -31,3 +31,11 @@ Thumbs.db
 *.log
 .vscode/
 .idea/
+
+# Laravel runtime state (application lives below the repository root)
+laravel-app/storage/framework/
+laravel-app/storage/logs/
+laravel-app/storage/app/
+laravel-app/storage/*.key
+laravel-app/public/storage
+laravel-app/bootstrap/cache/*.php

@@ -65,7 +65,7 @@ final class GrpcInventoryGatewayTest extends TestCase
     public function test_an_expired_deadline_becomes_inventory_unavailable(): void
     {
         $client = $this->createMock(InventoryServiceClient::class);
-        $client->method('Release')->willReturn($this->answer(null, code: 4, details: 'Deadline Exceeded'));
+        $client->expects($this->once())->method('Release')->willReturn($this->answer(null, code: 4, details: 'Deadline Exceeded'));
 
         $this->expectException(InventoryUnavailableException::class);
         $this->expectExceptionMessage(InventoryUnavailableException::MESSAGE);
@@ -76,7 +76,7 @@ final class GrpcInventoryGatewayTest extends TestCase
     public function test_a_stopped_service_becomes_inventory_unavailable(): void
     {
         $client = $this->createMock(InventoryServiceClient::class);
-        $client->method('SetStock')->willReturn($this->answer(null, code: 14, details: 'failed to connect to all addresses'));
+        $client->expects($this->once())->method('SetStock')->willReturn($this->answer(null, code: 14, details: 'failed to connect to all addresses'));
 
         try {
             $this->gateway($client)->setStock(1, 5);
@@ -101,7 +101,7 @@ final class GrpcInventoryGatewayTest extends TestCase
     public function test_a_refused_request_is_a_bug_not_an_outage(): void
     {
         $client = $this->createMock(InventoryServiceClient::class);
-        $client->method('SetStock')->willReturn($this->answer(null, code: 3, details: 'Invalid product id'));
+        $client->expects($this->once())->method('SetStock')->willReturn($this->answer(null, code: 3, details: 'Invalid product id'));
 
         $this->expectException(InvalidArgumentException::class);
 
@@ -116,7 +116,7 @@ final class GrpcInventoryGatewayTest extends TestCase
     private function answer(?Message $response, int $code = 0, string $details = ''): UnaryCall
     {
         $call = $this->createMock(UnaryCall::class);
-        $call->method('wait')->willReturn([$response, (object) ['code' => $code, 'details' => $details]]);
+        $call->expects($this->once())->method('wait')->willReturn([$response, (object) ['code' => $code, 'details' => $details]]);
 
         return $call;
     }
