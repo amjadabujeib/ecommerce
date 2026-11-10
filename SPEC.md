@@ -61,6 +61,44 @@ The course does not prescribe SQL lock syntax, UUIDs, exact HTTP failure codes, 
 - The core has no direct inventory database access. Inventory product identifiers correspond to catalog identifiers without cross-database foreign keys.
 - Refresh/logout, cart, category administration, and persistent notifications are existing project design choices beyond the course's minimum endpoint list. Asynchronous notification delivery and WebSockets belong to a later milestone.
 
+### Module ownership and public interfaces
+
+The core is one deployable Laravel modular monolith. Each module owns its queries, models, controllers, and business rules. The shared database and existing foreign keys remain; they do not grant another module permission to query or relate to the owning module's models.
+
+| Module | Owned data / responsibility | Public integration surface |
+| --- | --- | --- |
+| Users | Users, authentication, roles, recipient identity/delivery | `Users\PublicApi\Actor` and `UserDirectory`: actor identity, batch profile values, notification delivery to user IDs/admins |
+| Products | Products, categories, images, catalog availability | `Products\PublicApi\Catalog` returns immutable `CatalogProduct` values; public stock/deletion errors and product lifecycle events |
+| Orders | Carts, cart items, orders, order lines, checkout/lifecycle | Immutable `Orders\PublicApi\OrderSummary` and committed order events; subscribes to product deletion events using Orders-owned data |
+| Notifications | Notification payloads, inbox/read-state queries | Consumes order snapshots and asks Users' public directory to deliver framework notifications; inbox queries are scoped by actor ID |
+| Inventory adapter | PHP gRPC translation and deadlines | Existing `Inventory\Contracts`, `Data`, and `Exceptions`; generated messages/client code remain private to the adapter |
+
+Allowed compile-time module dependencies are acyclic:
+
+```mermaid
+flowchart LR
+    Notifications --> Orders
+    Notifications --> Users
+    Orders --> Users
+    Orders --> Products
+    Orders --> Inventory
+    Products --> Inventory
+```
+
+Cross-module reads return immutable snapshots or plain profile arrays, never Eloquent models, query builders, relationships, or HTTP resource objects. The authenticated user is accessed through the small `Actor` identity interface. Foreign IDs are scalar values; ORM relationships exist only between models owned by the same module. Profile and catalog enrichment is batched for entire order pages.
+
+Products dispatches the synchronous public `ProductDeleting` event while holding its own product-row lock. Orders checks pending orders and history in its own tables and can refuse deletion or request retention. Products performs its own hard/soft deletion, then publishes `ProductRemoved`; Orders removes its own cart lines. This preserves the deletion rules without a Products-to-Orders import. The deletion guard must remain synchronous.
+
+Committed order events carry readonly `OrderSummary` data and string status values rather than live models/enums. Notifications therefore uses the facts at dispatch time and cannot query or mutate Orders internals. Existing notification types, JSON fields, status transitions, and HTTP routes remain compatible.
+
+Run the standalone dependency guard from `laravel-app/`:
+
+```fish
+php tests/Architecture/check-modules.php
+```
+
+It checks references against the public surfaces and dependency direction, and checks ownership/resolution of ORM relationship targets. `composer test:architecture` runs it too; `composer test` includes it before the Laravel suite. This is a source guard, not a complete semantic analyzer; runtime interface and authorization checks remain necessary. Factories, migrations, and integration tests outside `app/Modules/` may compose multiple modules to build fixtures/schema.
+
 ### REST compatibility baseline
 
 Use the paths already exercised by the committed Postman collection and race script as the intended compatibility baseline. These paths are the compatibility baseline from the committed clients. Verify registered routes and behavior during implementation checks.
@@ -180,21 +218,15 @@ Existing artifacts:
 - [Outage Postman collection](docs/api/NovaCart-inventory-outage.postman_collection.json).
 - [Race demonstration](docs/demo/race-condition.mjs).
 
-### Implementation baseline — 2026-11-10
+### Implementation state on the module-refactor branch — 2026-11-10
 
-Merged main at `5e06d54` contains all four core domains, migrations/tests, the inventory adapter and Node implementation. Earlier missing-file observations referred to the infrastructure-only branch, not merged main.
+This branch builds on merged main `5e06d54`, the requirements documentation, reservation replay fixes, and the gRPC connection-recovery fix.
 
-The intended architecture is a modular Laravel monolith with a shared core database plus the independent inventory service required by requirement 2. The four domains run in process. Current source still uses cross-module ORM relationships and direct model/resource imports; those need an explicit public-interface cleanup.
+The four core domains remain in one Laravel runtime with a shared database. Cross-module model/resource imports and ORM relationships have been replaced by public catalog/profile/identity interfaces and immutable order events. Products delegates order-reference deletion checks through a synchronous public event, so the compile-time module graph is acyclic.
 
-Source-level concerns to address and verify:
+The standalone architecture guard and batch presentation integration check are included with this branch. Public HTTP acceptance demos and the full dated verification record are organized in the downstream acceptance branch. Until that record is reviewed, source organization alone does not establish complete milestone readiness.
 
-- Successful reservation IDs are reused without comparing the item payload. Rejected attempts are not retained, allowing a replay to change its outcome after stock replenishment.
-- Failed compensation is logged without durable retry/reconciliation.
-- The HTTP race demo's exit status does not enforce every loser response, final stock, and persisted order count; cleanup needs disposable fixtures and reliable finalization.
-- Check service downtime, deadlines and recovery after inventory changes address, with real PHP-to-Node gRPC.
-- Run the acceptance gate with both core behavior tests and real PostgreSQL/gRPC integration evidence. Source/configuration presence alone does not establish readiness.
-
-Runtime verification is pending at this documentation baseline. Requirement 3 stays deferred until requirements 1 and 2 are established.
+Failed compensation still logs without durable retry/reconciliation. Fresh-build/full PHPUnit and hosted workflow verification remain outstanding. Requirement 3 remains deferred.
 
 ## 6. Requirement 3 — deferred performance and caching milestone
 

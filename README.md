@@ -31,6 +31,8 @@ Clients (Web / Mobile / QA) ───────────────► Ngi
                                                          (PostgreSQL)
 ```
 
+The Laravel core is a modular monolith with module-owned models and queries, public catalog/user interfaces, and immutable order events. Inventory is the separate gRPC application required by requirement 2. See [module ownership and dependency rules](SPEC.md#module-ownership-and-public-interfaces).
+
 ### Key Technical Pillars
 
 1. **Modular Core API Backend (Laravel 13, PHP 8.5)**:

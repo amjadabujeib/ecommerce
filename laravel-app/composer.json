@@ -51,7 +51,9 @@
             "Composer\\Config::disableProcessTimeout",
             "@php artisan dev"
         ],
+        "test:architecture": "@php tests/Architecture/check-modules.php",
         "test": [
+            "@test:architecture",
             "@php artisan config:clear --ansi @no_additional_args",
             "@php artisan test"
         ],

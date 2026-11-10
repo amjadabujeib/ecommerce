@@ -12,6 +12,8 @@ These instructions apply throughout this repository.
 ## Architecture and compatibility
 
 - Keep Users, Products, Orders, and Notifications as the core domain modules. The Laravel Inventory module is a service adapter.
+- Cross-module references use the owning module's `PublicApi` only; the Inventory adapter exposes its existing `Contracts`, `Data`, and `Exceptions`. Keep the dependency direction documented in SPEC.md. Models, ORM relationships, query builders, and HTTP resources stay inside their owner; exchange IDs/snapshots through public interfaces.
+- Product deletion guards run synchronously; order events carry immutable committed data. Batch catalog/profile enrichment rather than resolving foreign data per order line.
 - Inventory owns its separate database. Core stock access goes through gRPC and [the shared proto](proto/inventory/v1/inventory.proto); update both service implementations, generated clients, and contract tests together when changing it.
 - Preserve atomic multi-item reservations, reservation-ID idempotency, compensating release, and explicit RPC deadlines. A timeout may follow a remote commit; handle that ambiguity rather than reserving again with a new ID.
 - Enforce ownership/roles before side effects. Derive customer identity and order prices on the server.
@@ -20,6 +22,7 @@ These instructions apply throughout this repository.
 
 ## Verification and reporting
 
+- For module changes, run `php tests/Architecture/check-modules.php` from `laravel-app/`, then the affected behavior checks.
 - For core changes, use applicable Laravel HTTP tests. `php artisan test` from `laravel-app/` is the intended runner once development dependencies are available. Inspect tests and database configuration before running.
 - For inventory changes, run the Node service's gRPC/PostgreSQL tests with a disposable `TEST_DATABASE_URL`. The test helper creates and removes isolated schemas.
 - For distributed correctness, use real gRPC/PostgreSQL integration and the SPEC.md acceptance gate. Inventory fakes and SQLite do not prove locking, network behavior, or last-unit safety.
