@@ -7,7 +7,7 @@ These instructions apply throughout this repository.
 - Read [SPEC.md](SPEC.md) before changing behavior, reviewing compliance, or declaring a milestone complete. It separates course obligations, project decisions, acceptance checks, and observed gaps.
 - When interpreting instructor requirements, read the slide-numbered conversions: [requirements 1–2](docs/requirements/requirements-1-2.md) and [requirement 3](docs/requirements/requirement-3.md). Preserve their meaning; put implementation decisions in SPEC.md.
 - Establish and verify requirements 1 and 2 first. Implement requirement 3 only when the user's task advances to that milestone. Requirements 4–6 have roadmap titles only.
-- Inspect the current checkout before trusting documentation claims. SPEC.md records the merged implementation and pending acceptance checks; update that evidence when the state changes.
+- Inspect the current checkout before trusting documentation claims. SPEC.md and [the verification report](docs/verification/requirements-1-2.md) record the merged implementation, passing checks, and pending checks; update that evidence when the state changes.
 
 ## Architecture and compatibility
 
@@ -31,6 +31,7 @@ These instructions apply throughout this repository.
 
 ## Collaboration and local environment
 
+- Group changes into focused branches and progressive commits. Use stacked branches for dependent work, and document each branch's base so reviews exclude earlier layers.
 - Use feature branches and teammate-reviewed PRs for shared changes. Course participation and branch-protection requirements are in SPEC.md. Do not commit, push, or merge unless requested.
 - Write user-facing explanations in English. For interactive host instructions, use fish-compatible syntax and Arch/CachyOS package commands; container commands follow the container's own OS.
 - Keep network use lean. Obtain explicit authorization before installing dependencies/packages, downloading large files or container images, or starting/stopping/enabling services. State expected size before proposing large downloads.

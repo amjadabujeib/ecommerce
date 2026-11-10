@@ -2,7 +2,7 @@
 
 Coursework project for **Internet Applications (2026)** at Damascus University.
 
-> **Implementation status (2026-11-10):** Core and inventory code is merged. Requirements 1 and 2 still need the acceptance checks and source fixes described in [SPEC.md](SPEC.md). The presentations are converted in [requirements 1–2](docs/requirements/requirements-1-2.md) and [requirement 3](docs/requirements/requirement-3.md). Requirement 3 remains deferred.
+> **Verification status (2026-11-10):** Core and inventory implementations are merged. Integration checks now pass for security, checkout, inventory concurrency, outages/recovery, and normal compensation. Fresh-build and full PHPUnit verification remain pending; failed-compensation recovery is still a known gap. See [the verification record](docs/verification/requirements-1-2.md) and [SPEC.md](SPEC.md). Source presentations are converted in [requirements 1–2](docs/requirements/requirements-1-2.md) and [requirement 3](docs/requirements/requirement-3.md). Requirement 3 remains deferred.
 
 This project targets a distributed, polyglot e-commerce platform for **Requirement 1 (API Design & Security)** and **Requirement 2 (Inter-Service Communication & Inventory Safety)**.
 

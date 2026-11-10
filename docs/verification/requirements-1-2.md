@@ -1,0 +1,152 @@
+# Requirements 1 and 2 — verification record
+
+Date: 2026-11-10. Branch: `fix/requirements-1-2-verification`, based on merged main commit `5e06d54`.
+
+## Scope and environment
+
+The user updated main and authorized isolated container tests. Existing uncommitted specification/source-conversion work was preserved on the new branch. No commit, push, merge, image pull, dependency download, host package installation, or host service change was performed.
+
+The host's `docker` command uses Podman compatibility. Tests used locally cached images with PHP 8.5.12, Laravel v13.39.0, grpc/grpc 1.85.0, jwt-auth v2.9.3, Node.js 22 and PostgreSQL 17. The three PHP library versions were checked against `composer.lock` and matched.
+
+Initial HTTP tests used a PHP development server with four workers and distinct core/inventory databases on one disposable PostgreSQL container. The deployment-path checks were then repeated through cached Nginx and PHP-FPM images using **separate core and inventory PostgreSQL containers**, tmpfs database storage, an isolated network, and a dedicated shared application-storage volume. Current source was copied into the cached PHP image; inventory source and the shared proto were mounted over its cached dependencies. The normal entrypoint successfully migrated, seeded, cached config/routes, and started PHP-FPM.
+
+These runs validate the source with cached runtime dependencies; they do not establish that a fresh Docker build succeeds. The Laravel inventory deadline was shortened to 500 ms for failure tests; the repository default remains 2000 ms.
+
+## Results
+
+| Check | Result and evidence |
+| --- | --- |
+| Existing inventory baseline | 10 existing tests passed through real gRPC/PostgreSQL |
+| Reservation replay regressions | Changed quantities and replaying a rejection after replenishment both failed before the fix and passed afterward |
+| PHP inventory fake | Direct execution confirmed rejection replay, changed-payload rejection and no stock addition when releasing rejected attempts |
+| Updated inventory suite | **15 tests passed**, including last-unit concurrency, simultaneous identical retries, equivalent duplicate/reordered lines, reserve/release idempotency, early release, deadlines and legacy-schema upgrade/repeated migration |
+| Registration and JWT | Public role escalation ignored; missing/invalid tokens rejected; refresh revokes old token; logout revokes refreshed token |
+| Expired JWT | Correctly signed valid and expired tokens tested in separate fresh Laravel processes: 200 and 401 respectively |
+| Authorization | Foreign customer order read 403; customer admin mutation 403; admin completion/cancellation succeeded |
+| Catalog | Real PNG upload accepted and served through Nginx/shared storage; text disguised as PNG rejected; category filtering and pagination metadata passed |
+| Checkout | Server-calculated total ignored client amount; stock decreased; shortage returned 409 without an order; cart preserved on failure |
+| Notifications/lifecycle | Customer notification present; cancellation restored stock; repeated cancellation did not restore twice; invalid transition returned 422 |
+| Security and errors | JSON error envelopes and configured security headers verified on successful and failed HTTP requests; login limit returned 429 after six attempts |
+| Required HTTP last-unit proof | **10 buyers: one 201, nine 409s, exactly one persisted order, final stock 0**; repeated through Nginx/PHP-FPM |
+| Required stopped-inventory proof | Through Nginx/PHP-FPM: 503 in **1029 ms**, `Retry-After: 5`, unknown stock while browsing, no saved order |
+| Recovery after IP change | After channel configuration fix, stock became readable in **305 ms** after restart through Nginx/PHP-FPM; original cart checked out once, without restarting PHP workers |
+| Slow inventory | 1500 ms artificial delay with 500 ms per-RPC deadline: checkout 503 in **1024 ms**, no saved order; delayed reservation/release eventually restored inventory |
+| Required persistence-failure proof | Real remote reservation reduced stock from 5 to 3; forced order-line save failure produced 500, rolled back the order, restored stock to 5, and preserved the cart; repeated in PHP-FPM container |
+| Configuration/static checks | Compose configuration parsed; 135 PHP source/demo files passed syntax checks; Node demo syntax, local Markdown links, and `git diff --check` checked |
+
+Incorrect credentials currently return 422 with validation-style field errors, as asserted by the existing AuthenticationTest. Missing/invalid/expired bearer tokens return 401. The course does not prescribe the wrong-password code; this pass preserves that existing interface.
+
+## Applied changes and why
+
+- `nodejs-inventory/src/inventory.js`: persist rejected outcomes and normalized reservation items, compare replay payloads, serialize replay against release, and prevent releasing a rejected attempt from adding stock.
+- `nodejs-inventory/src/db.js`: add stored shortages and the rejected state to existing schemas as well as new ones. Schema changes run transactionally under the migration advisory lock.
+- `nodejs-inventory/src/server.js`: mismatched reservation replay returns gRPC `INVALID_ARGUMENT` rather than success or a generic internal failure.
+- `laravel-app/tests/Fakes/FakeInventory.php`: match the real service's revised replay/release semantics.
+- `proto/inventory/v1/inventory.proto`: clarify replay semantics in comments. RPC names, fields, and wire types are unchanged; message regeneration is unnecessary.
+- `laravel-app/app/Modules/Inventory/InventoryServiceProvider.php`: use `force_new` and a local subchannel pool to avoid retaining stale resolver/connection state across PHP requests after inventory changes IP. This trades cross-request connection reuse for recovery; connection setup cost has not been benchmarked. Within a request, the gateway still reuses its client.
+- `docs/demo/race-condition.mjs`: dedicated fixture product, full loser/stock/persisted-order assertions, bounded requests, and cleanup in `finally`; it no longer modifies the first catalog product or reports success from winner count alone.
+- Added public-HTTP acceptance and outage/recovery demos, plus a standalone real-gRPC persistence-failure demonstration.
+
+The original recovery attempt failed: the service acquired a new IP and passed its health check, fresh DNS resolution saw the new IP, but HTTP workers retained the old destination. Fresh channels alone were insufficient in the experiment; channel plus subchannel isolation passed the recovery checks. Test-server OPcache was disabled during live-edit experiments; deployment checks then ran the final code through normal PHP-FPM/OPcache startup.
+
+## Repeatable checks
+
+Use **disposable databases**, not a shared shop. These demos create accounts/orders/notifications; race/outage demos cancel fixture orders and remove fixture products, but historical records remain until the test databases are discarded. Outage testing stops/restarts the explicitly named inventory container. Persistence testing deliberately fails order saving. These are verification tools, not production endpoints.
+
+From the repository root, with an already provisioned disposable stack:
+
+```fish
+env BASE_URL=http://localhost:8080/api/v1 ADMIN_PASSWORD='TEST_ADMIN_PASSWORD' node docs/demo/verify-requirements.mjs
+env BASE_URL=http://localhost:8080/api/v1 ADMIN_PASSWORD='TEST_ADMIN_PASSWORD' node docs/demo/race-condition.mjs
+env BASE_URL=http://localhost:8080/api/v1 ADMIN_PASSWORD='TEST_ADMIN_PASSWORD' INVENTORY_CONTAINER=TEST_INVENTORY_CONTAINER node docs/demo/inventory-outage.mjs
+```
+
+For inventory tests, from `nodejs-inventory/`, with dependencies already present:
+
+```fish
+env TEST_DATABASE_URL='postgres://TEST_USER:TEST_PASSWORD@TEST_HOST/TEST_DATABASE' npm test
+```
+
+The inventory helper creates/drops unique schemas. The database account therefore needs schema creation permission. The persistence demo runs from `laravel-app/` with `APP_ENV=testing`, dependencies present, and the real disposable inventory connection configured:
+
+```fish
+php ../docs/demo/persistence-failure.php
+```
+
+It can also be copied into the disposable app container and executed as `www-data` from `/var/www/html`, as in this investigation, to preserve writable log/storage ownership. It requires no PHPUnit or inventory fake.
+
+## Pending checks and limitations
+
+- **Fresh image build:** `docker build --pull=false --network=none --target app ... laravel-app` failed at Composer install because package archives were not cached in that build stage. Networking was disabled, so no packages were downloaded. This is an offline verification blocker, not proof of an application compile error. Rebuild with an authorized dependency cache/network connection before claiming a clean-build pass.
+- **Full Laravel PHPUnit suite:** host PHP/Composer and development dependencies are absent; the cached production image has no PHPUnit. The existing feature/unit suites were not run. Real HTTP/kernel checks above do not replace every assertion in those suites.
+- **Compensation recovery:** `releaseQuietly()` attempts release but only logs when release also fails. There is no durable retry/reconciliation mechanism for a failed cleanup or process crash. Normal persistence-failure compensation and delayed-call compensation passed; stronger recovery remains a known gap.
+- **Module encapsulation:** the follow-up refactor below removes cross-module model/resource access and cycles. Module data ownership and public interfaces are documented in SPEC.md and checked by a standalone source guard.
+- **Hosting workflow:** protected-branch settings and each member's required reviewed PR participation were not audited against the hosting service.
+- Requirement 3 optimizations and performance benchmarks were not implemented.
+
+Accordingly, the required security, inventory race, outage, and normal compensation behaviors have passing integration evidence. The complete requirements 1–2 verification gate remains open for the pending build/PHPUnit/workflow checks; do not label the whole milestone fully verified.
+
+## Recovery, schema compatibility, and cleanup
+
+The inventory schema change preserves existing reservations, but older inventory code does not understand persisted rejected outcomes. Roll back application and schema/data together from a backup, or use a fresh disposable database; do not simply start the old code against the upgraded reservation data. No real database was upgraded in this session.
+
+All named `novacart-verification-*` containers, their temporary network, and the dedicated storage volume are removed after testing. Source changes remain uncommitted on the verification branch for review. No host dotfiles integration is needed.
+
+## Modular-monolith cleanup follow-up — 2026-11-10
+
+The user requested an implementation cleanup after the initial correctness pass. The core remains one Laravel application/database; inventory remains independently deployed. No new core database migration or REST/gRPC wire change was introduced.
+
+### Changes
+
+- Added Products' public `Catalog` facade and readonly `CatalogProduct` values, plus Users' public `Actor` interface and `UserDirectory`. Consumers obtain catalog/profile data without foreign models or resources. UserDirectory retains framework notification delivery behind the identity module's interface, including compatibility with Laravel's notification fake.
+- Removed User-to-Orders/Cart, Product-to-OrderItems, Order/Cart-to-User, and OrderItem/CartItem-to-Product ORM relationships. IDs and existing foreign keys remain. Fixtures now set foreign IDs explicitly where a removed relationship previously powered factory `for()`.
+- Added an Orders-owned batch presentation module. Customer/catalog enrichment uses public interfaces; catalog titles are transient read-side properties, not persisted order-line attributes.
+- Moved integration events/errors into public surfaces. Order events contain readonly `OrderSummary` values and string statuses, without live models. Notifications queries its own inbox by actor ID and receives only public order data.
+- Replaced Products' direct Orders query with synchronous `ProductDeleting`/`ProductRemoved` events. Orders guards pending-order references, requests historical retention, and cleans its own carts; Products retains control of deletion and image lifecycle.
+- Added `tests/Architecture/check-modules.php`, runnable without PHPUnit/dependencies, and wired it into `composer test:architecture` and `composer test`. It enforces the documented acyclic import graph, public surface access, and ownership/resolution of relationship targets. The initial source guard rejected 34 forbidden references in the original source; the final guard passes on the refactor. It is a source guard rather than a complete semantic analyzer.
+- Added `tests/Architecture/verify-presentation.php` and `docs/demo/verify-modularity.mjs` for batch-read and public-HTTP regression checks.
+
+### Verification
+
+All runtime checks used cached images, current source, separate disposable PostgreSQL containers, Nginx and PHP-FPM, with normal route/config caching and OPcache. The test image's old module directory was removed before copying the final module tree, so deleted classes were not available as accidental fallbacks.
+
+| Check | Result |
+| --- | --- |
+| Public module/relationship guard | Pass; graph is Notifications -> Orders/Users, Orders -> Products/Users/Inventory, Products -> Inventory, Users/Inventory -> no core module |
+| General HTTP acceptance demo | Pass: authentication/roles, IDOR, images, filtering/pagination, totals, notifications, cancellation, stock shortages and throttling |
+| HTTP concurrency | Pass: 10 buyers, one 201, nine 409s, one persisted order, stock 0 |
+| Module integration demo | Pass: checkout profile/catalog shape, pending-order deletion refusal, historical product title after soft deletion, cart removal, administrator order/dashboard profiles, administrator notifications, event payload values and notification ownership/read state |
+| Batch presentation | Pass: one and eight orders both require 5 SQL queries including catalog/category/profile reads; transient catalog data does not dirty persisted line attributes |
+| Real persistence failure | Pass when run as www-data: remote reservation compensated, local order rolled back, cart preserved |
+| Outage/recovery | Pass: stopped inventory returns 503 in 1032 ms; stock visibility recovers in 367 ms and original cart checks out once |
+| Final source checks | 145 PHP files passed syntax checks; module guard, demo syntax, document links, Composer JSON and whitespace checks passed |
+| Full PHPUnit/fresh build | Still pending for the previously recorded dependency/cache limitations; no packages downloaded |
+
+Repeat the added checks from `laravel-app/` and repository root respectively:
+
+```fish
+php tests/Architecture/check-modules.php
+php tests/Architecture/verify-presentation.php
+```
+
+```fish
+env BASE_URL=http://localhost:8080/api/v1 ADMIN_PASSWORD='TEST_ADMIN_PASSWORD' node docs/demo/verify-modularity.mjs
+```
+
+The presentation test requires `APP_ENV=testing`, dependencies, and a disposable migrated database, and rolls back its fixtures. When running PHP demos in the app container, use `docker exec --user www-data TEST_APP_CONTAINER php SCRIPT_PATH` from its application working directory. A root CLI run had created a root-owned log file: subsequent PHP-FPM outage logging failed with HTTP 500. The failure reproduced, `stat`/a www-data write check confirmed the permissions, and restoring that **disposable** file to www-data plus rerunning as www-data fixed the harness. No application error-handling change was needed.
+
+Source refactoring and documentation remain uncommitted on `fix/requirements-1-2-verification`. Existing failed-compensation durability and hosted-workflow checks remain separate outstanding work. No requirement 3 feature was introduced.
+
+## Branch and commit organization
+
+The reviewed work is organized into a local stack of five branches. Review each branch against its listed base, in this order; opening every branch against main would repeat changes from earlier layers. No branch was pushed and main was not modified.
+
+| Order | Branch | Base | Focused commits |
+| --- | --- | --- | --- |
+| 1 | `docs/requirements-and-agent-guidance` | `main` at `5e06d54` | Presentation conversions; specification, acceptance gates and agent guidance |
+| 2 | `fix/inventory-reservation-replay` | `docs/requirements-and-agent-guidance` | Reservation payload/rejection replay semantics, schema upgrade, matching fake and regressions |
+| 3 | `fix/grpc-inventory-recovery` | `fix/inventory-reservation-replay` | Channel/subchannel isolation after inventory address changes |
+| 4 | `refactor/modular-monolith` | `fix/grpc-inventory-recovery` | Public contracts; atomic consumer/ORM migration; architecture enforcement and batch checks |
+| 5 | `test/requirements-1-2-acceptance` | `refactor/modular-monolith` | Public acceptance/failure demos; final verification evidence and current docs |
+
+The final branch contains the complete combined result. Intermediate documentation describes its corresponding stage; final verification claims and this record are committed with the acceptance layer. A local stash named "Recovery snapshot before organizing requirements, fixes, architecture and acceptance commits" preserves the original uncommitted tree. Source files are checked against that snapshot after organization; only branch-workflow documentation is added during the split. Runtime results above predate this Git-only reorganization; creating commits does not constitute a new test run.

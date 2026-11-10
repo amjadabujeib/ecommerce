@@ -101,7 +101,7 @@ It checks references against the public surfaces and dependency direction, and c
 
 ### REST compatibility baseline
 
-Use the paths already exercised by the committed Postman collection and race script as the intended compatibility baseline. These paths are the compatibility baseline from the committed clients. Verify registered routes and behavior during implementation checks.
+Use the paths already exercised by the committed Postman collection and race script as the intended compatibility baseline. The merged application registers these routes; the verification pass exercised the principal workflows. See [the verification record](docs/verification/requirements-1-2.md) for outcomes and remaining checks.
 
 All paths below are relative to `/api/v1`:
 
@@ -218,15 +218,24 @@ Existing artifacts:
 - [Outage Postman collection](docs/api/NovaCart-inventory-outage.postman_collection.json).
 - [Race demonstration](docs/demo/race-condition.mjs).
 
-### Implementation state on the module-refactor branch — 2026-11-10
+### Current implementation and verification — 2026-11-10
 
-This branch builds on merged main `5e06d54`, the requirements documentation, reservation replay fixes, and the gRPC connection-recovery fix.
+The user pulled merged main at `5e06d54`, including all four core domains and the inventory branch. Work continues on `fix/requirements-1-2-verification`; earlier reports of missing implementation files referred to the infrastructure-only branch and no longer describe this checkout.
 
-The four core domains remain in one Laravel runtime with a shared database. Cross-module model/resource imports and ORM relationships have been replaced by public catalog/profile/identity interfaces and immutable order events. Products delegates order-reference deletion checks through a synchronous public event, so the compile-time module graph is acyclic.
+**Architecture:** a modular Laravel monolith plus the independent inventory service required by requirement 2. Core domains share one Laravel runtime and core database, with in-process calls/events. Node inventory owns its separate database and exposes gRPC. Nginx/PHP/database containers do not turn each core domain into a microservice. The architecture cleanup removed direct cross-module model/resource access, replaced it with public data/identity interfaces and snapshot events, and added the dependency guard described above.
 
-The standalone architecture guard and batch presentation integration check are included with this branch. Public HTTP acceptance demos and the full dated verification record are organized in the downstream acceptance branch. Until that record is reviewed, source organization alone does not establish complete milestone readiness.
+See [the verification record](docs/verification/requirements-1-2.md) for environment, exact scope, reproducible demos, failure evidence, applied changes, and rollback limitations. Current evidence:
 
-Failed compensation still logs without durable retry/reconciliation. Fresh-build/full PHPUnit and hosted workflow verification remain outstanding. Requirement 3 remains deferred.
+- 15 real gRPC/PostgreSQL tests passed, including new replay regressions and a legacy-schema upgrade test.
+- HTTP security/catalog/order/lifecycle checks passed through cached Nginx/PHP-FPM with separate database containers.
+- Last-unit race: 10 buyers, one 201, nine 409s, one saved order, stock 0.
+- Stopped inventory: bounded 503, unknown stock while browsing, and recovery after service IP change passed.
+- Slow inventory: bounded response and eventual cleanup of a delayed reservation passed.
+- Forced order-line persistence failure after real reservation rolled back the order, restored stock, and preserved the cart.
+- Fresh build remains unverified: the offline attempt lacked cached Composer archives. The full PHPUnit suite is also pending because development dependencies are unavailable. Hosted branch-protection/participation evidence remains unchecked.
+- Failed compensation currently logs its reservation ID but has no durable retry/reconciliation mechanism; process-crash recovery is not guaranteed.
+
+The verification gate remains open for the pending checks. Passing demonstrations do not establish complete milestone readiness. Requirement 3 remains deferred.
 
 ## 6. Requirement 3 — deferred performance and caching milestone
 
