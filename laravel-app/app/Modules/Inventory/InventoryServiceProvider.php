@@ -26,7 +26,13 @@ final class InventoryServiceProvider extends ServiceProvider
 
                 return new InventoryServiceClient(
                     (string) config('services.inventory.address'),
-                    ['credentials' => ChannelCredentials::createInsecure()],
+                    [
+                        'credentials' => ChannelCredentials::createInsecure(),
+                        // PHP otherwise reuses persistent channels across requests,
+                        // including stale DNS after a container changes address.
+                        'force_new' => true,
+                        'grpc.use_local_subchannel_pool' => 1,
+                    ],
                 );
             },
             timeoutMs: (int) config('services.inventory.timeout_ms'),
