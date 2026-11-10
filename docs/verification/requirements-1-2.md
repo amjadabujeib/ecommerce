@@ -2,6 +2,61 @@
 
 Date: 2026-11-10. Current branch: `test/requirements-1-2-acceptance`, based on merged main commit `5e06d54`. Initial runtime work was performed on the former `fix/requirements-1-2-verification` branch.
 
+## Current technical acceptance — wrap-up on 2026-11-10
+
+**Requirements 1–2 technical acceptance passes, including the basic GUI requested by the user.** Team participation is excluded from this wrap-up at the user's request. Requirement 3 remains deferred. No push or merge into main was performed; focused commits remain on the acceptance branch.
+
+The following results supersede the pending/gap statements in the historical investigation sections below. Those sections preserve the earlier failures and the evidence used to resolve them.
+
+| Check | Current result |
+| --- | --- |
+| Build/start | App, web and inventory images built from current source with cached base/native layers and locked dependencies. Final app/web source builds also passed with `--network=none`. Six isolated containers booted: PHP-FPM, Nginx, two PostgreSQL databases, inventory and the recovery scheduler. Migrations, seed/config/route setup and scheduled command execution succeeded. Compose configuration validates; 162 PHP source/test files pass syntax checks and changed documentation links resolve. |
+| Full Laravel suite | **88 passed, 400 assertions** via `php artisan test --fail-on-warning --fail-on-notice`, PHP 8.5.12, locked development dependencies, SQLite and the inventory fake. This proves HTTP/orchestration behavior; real database/network checks are recorded separately. |
+| Real inventory suite | **15 passed** via `npm test` in the source-built inventory container with a disposable `TEST_DATABASE_URL`; PostgreSQL isolated schemas and real gRPC, including lock/replay/deadline/migration regressions. |
+| General HTTP acceptance | `verify-requirements.mjs` passed registration, role escalation refusal, JWT/refresh/logout, ownership/admin enforcement, real PNG/image rejection, category filtering, pagination, authoritative prices, cart/checkout, notifications, status/cancellation, shortages, login throttling, JSON errors and headers. |
+| Module boundaries | Source architecture guard passed; `verify-modularity.mjs` passed data snapshots, deletion/history/cart rules, administrator views/events and notification ownership. Presentation check: one and eight orders both use five queries. |
+| Last unit | `race-condition.mjs`: ten buyers, **one 201, nine 409s, one persisted order, stock zero**. |
+| Stopped inventory | `inventory-outage.mjs`: structured 503 with `Retry-After: 5` in **1050 ms** at a 500 ms test per-call deadline; unknown stock while browsing, no order. Recovery after service IP change in **370 ms**; preserved cart checked out once. |
+| Slow inventory | `slow-inventory.mjs`: **1500 ms artificial RPC delay**, structured 503 in **1082 ms**, no order, all stock restored after delayed Reserve/Release handlers settled. Original inventory container restored in `finally`. |
+| Local persistence failure | `persistence-failure.php`: real remote stock reserved, deliberate order-line save failure, local transaction rolled back, stock restored and cart retained. |
+| Durable recovery | `reservation-recovery.php` in separate processes: committed intent and real remote reservation left behind, inventory stopped, release failed and pending intent survived; inventory restarted, recovery restored stock exactly once. Repeated recovery preserved stock. Laravel tests additionally cover commit ambiguity, new-intent grace period, timeout after remote commit, and checkout persistence failure plus unavailable compensation. |
+| Proxy failures | `proxy-errors.mjs` against isolated Nginx without PHP: **413, 502, 403** preserve status and JSON envelope/content type, security headers, and Retry-After on 502. FastCGI application errors are not intercepted. |
+| GUI/browser | Headless installed Brave via dependency-free CDP script: admin sign-in, category/product creation and PNG upload/rendering, customer registration/search/category filter/cart/checkout/own orders, notifications/read-all, reload authentication, administrator status change. No runtime/CSP errors; no horizontal overflow at 390 px. The final source-built app/web images passed this browser demo without source mounts or copied files. |
+| Persistence | `persistence-restart.mjs`: all six containers stopped and restarted, using disposable **named volumes** for both databases and application storage; **six existing orders, catalog stock and an existing JWT survived**. Nginx starts after PHP so its upstream resolves the current container address. |
+| Network budget | User approved up to 100 MiB. A temporary counting CONNECT proxy enforced the cap for dependency downloads. Total **31,284,418 bytes / 29.84 MiB**; no base image pulls, host package installs or frontend packages. |
+
+The GUI is served at `/` and consumes unchanged `/api/v1` interfaces. It uses local JS/CSS and per-tab sessionStorage JWTs. All prices/authorization/ownership decisions remain in the API. The source slide excludes visual-design grading; it does not expressly waive a functional frontend. This corrects the earlier backend-only interpretation.
+
+Recovery commits an intent **before** Reserve, locks it through remote reservation and the local order transaction, and marks it committed with the order. Failures attempt Release using the same UUID. Failed compensation or process death leaves a pending intent. `orders:recover-reservations` locks/checks that intent and a possible committed order before release. The Compose `scheduler` runs it every minute with a five-minute age threshold; it waits for app health after migration startup. Recovery requires eventual access to both systems. No queue broker or requirement-3 infrastructure was introduced.
+
+### Reproduction and limits
+
+Use disposable databases/volumes and test administrator credentials. Never point destructive demos at real shop data. The test stack used port 18080, an isolated `novacart-wrapup` network, independently owned PostgreSQL databases and an application deadline of 500 ms; the committed default remains 2000 ms.
+
+```fish
+# In laravel-app after locked development dependencies and local runtime directories exist:
+php artisan test --fail-on-warning --fail-on-notice
+php tests/Architecture/check-modules.php
+
+# From repository root, with a disposable stack and ADMIN_PASSWORD already set:
+env BASE_URL=http://127.0.0.1:18080/api/v1 ADMIN_PASSWORD=$ADMIN_PASSWORD node docs/demo/verify-requirements.mjs
+env BASE_URL=http://127.0.0.1:18080/api/v1 ADMIN_PASSWORD=$ADMIN_PASSWORD node docs/demo/verify-modularity.mjs
+env BASE_URL=http://127.0.0.1:18080/api/v1 ADMIN_PASSWORD=$ADMIN_PASSWORD node docs/demo/race-condition.mjs
+env BASE_URL=http://127.0.0.1:18080/api/v1 ADMIN_PASSWORD=$ADMIN_PASSWORD INVENTORY_CONTAINER=novacart-wrapup-inventory node docs/demo/inventory-outage.mjs
+env BASE_URL=http://127.0.0.1:18080/api/v1 ADMIN_PASSWORD=$ADMIN_PASSWORD INVENTORY_CONTAINER=novacart-wrapup-inventory node docs/demo/slow-inventory.mjs
+env BASE_URL=http://127.0.0.1:18080/api/v1 ADMIN_PASSWORD=$ADMIN_PASSWORD CONTAINER_PREFIX=novacart-wrapup- node docs/demo/persistence-restart.mjs
+```
+
+`gui-browser.mjs` requires an already running disposable Brave/Chromium with `--headless --remote-debugging-port=19223 --user-data-dir=<temporary-directory>`. Use the shop origin as its BASE_URL (without `/api/v1`). It uploads a temporary PNG and leaves fixture accounts/products/orders in the disposable database.
+
+For `reservation-recovery.php`, copy into the app container and execute as `www-data` from `/var/www/html` with APP_ENV=testing: `prepare`, stop inventory, `unavailable`, restart inventory, `recover`. The process-local fixture state contains IDs only, lives in storage, and is removed on successful recovery. Its fixed synthetic inventory ID is for disposable databases only.
+
+These passes are functional acceptance evidence, not an exhaustive proof of all distributed failures or production performance. Source builds reused cached native/base layers; a fully uncached native gRPC build was not downloaded or benchmarked. SQLite feature tests do not prove PostgreSQL locking. The real integration suite covers inventory locking and checkout races. Product administration and cancellation still involve independent database commits without distributed atomicity; checkout recovery does not claim to solve every such operation. Teammate participation/approval coverage is deliberately deferred, and requirement 3 has not begun.
+
+Temporary test containers, network, named volumes, browser profile and budget proxy are removed after the final checks. Locally built images and ignored locked development dependencies may remain for subsequent work; no real services or databases were changed.
+
+## Historical investigation (superseded where noted)
+
 ## Scope and environment
 
 The user updated main and authorized isolated container tests. Existing uncommitted specification/source-conversion work was preserved on the new branch. No commit, push, merge, image pull, dependency download, host package installation, or host service change was performed.

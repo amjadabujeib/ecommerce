@@ -57,7 +57,7 @@ The course does not prescribe SQL lock syntax, UUIDs, exact HTTP failure codes, 
 - `laravel-app/app/Modules/` holds Users (identity/JWT/roles), Products (catalog/categories/images), Orders (cart/checkout/ownership/lifecycle), and Notifications (user messages). The Inventory integration module is an adapter to the independent service, not a replacement for one of the four domain modules.
 - Cross-module operations use explicit services/contracts. Database ownership remains clear. The course does not impose a blanket ban on joins within the core database.
 - Node.js inventory uses gRPC and PostgreSQL. The shared contract is [inventory.proto](proto/inventory/v1/inventory.proto), package `inventory.v1`.
-- Compose defines `app` (PHP-FPM), `web` (Nginx, host port 8080 by default), `db` (core PostgreSQL), `inventory` (internal gRPC port 50051), and `inventory-db` (separate PostgreSQL). Persistent volumes retain storage and database data.
+- Compose defines `app` (PHP-FPM), `web` (Nginx, host port 8080 by default), `db` (core PostgreSQL), `inventory` (internal gRPC port 50051), `inventory-db` (separate PostgreSQL), and `scheduler` (the same core image running Laravel scheduled recovery). The scheduler waits for PHP-FPM health after migrations. Persistent volumes retain storage and database data.
 - The core has no direct inventory database access. Inventory product identifiers correspond to catalog identifiers without cross-database foreign keys.
 - Refresh/logout, cart, category administration, and persistent notifications are existing project design choices beyond the course's minimum endpoint list. Asynchronous notification delivery and WebSockets belong to a later milestone.
 
@@ -164,6 +164,12 @@ The existing `auth` limiter allows 6 requests per minute for normalized email pl
 
 Provide `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, a suitable `Referrer-Policy`, and a restrictive Content Security Policy appropriate to the served content. Apply HSTS when HTTPS is deployed. Exact header policy is a project decision; the course asks for basic security headers. Authorization must occur before inventory or other privileged side effects.
 
+### Functional customer/admin interface
+
+The source slide excludes evaluation of frontend **design**, not explicitly a working frontend. The agreed repository scope includes a basic GUI at `/`, using the existing `/api/v1` endpoints. Customers can register/sign in, search/filter/page products, view images and availability, manage quantities in their cart, check out, read their orders, and manage notifications. Administrators can manage categories and products (including images/stock), inspect the dashboard and all orders, and change status. Visual polish is outside the acceptance gate.
+
+The interface uses local JavaScript/CSS without a frontend package install or build service. User-supplied text is rendered with DOM text nodes. JWTs live in per-tab `sessionStorage`, refresh through the API and are removed on sign-out. All authorization, ownership, prices and stock decisions remain server-side. The shop CSP permits same-origin scripts/styles/images/connections; API CSP remains `default-src 'none'`. Proxy-generated errors use the JSON envelope, including 413 oversized requests and 502 unavailable PHP. Application FastCGI errors keep Laravel's response body.
+
 ## 4. Inventory contract, checkout, and failure semantics
 
 The `.proto` is the authority for RPC names and wire types. Use `Reserve` and `Release`, not the old SPEC's inconsistent `ReserveStock`/`ReleaseStock` names.
@@ -182,15 +188,15 @@ Choose transactional row locking (`SELECT ... FOR UPDATE`) with locks acquired i
 Checkout coordination is **reservation followed by local commit with compensation**, not a distributed two-phase commit protocol:
 
 1. Authenticate and validate the cart; snapshot requested items and authoritative prices.
-2. Generate a stable reservation UUID for this checkout attempt and call `Reserve` once for all items.
+2. Generate a stable reservation UUID and commit a `checkout_reservations` intent before contacting inventory. Lock that intent in a new core transaction and call `Reserve` once for all items.
 3. On `REJECTED`, return 409 with shortages and create no order. `RELEASED` must not be treated as a successful reservation.
-4. On `RESERVED`, save the order and lines in a local transaction, associate its reservation UUID, then return 201 after commit.
+4. On `RESERVED`, save the order and lines in a local transaction, associate its reservation UUID, and mark the intent committed in that same transaction; return 201 after commit.
 5. If saving fails, roll back the local transaction and invoke idempotent `Release` for that UUID. Verify stock restoration and return a structured local failure.
 6. Clear the cart and create notifications according to committed order state. A notification failure after commit must not release stock for an already committed order.
 
 Every RPC has an explicit deadline, default `INVENTORY_TIMEOUT_MS=2000`. Map unavailable/expired-deadline calls to a safe 503 response. Measure end-to-end duration, accounting for any compensation calls; a per-call deadline does not imply the entire HTTP request finishes in exactly 2000 ms.
 
-A timed-out reserve may have executed remotely. Use the same reservation UUID for cleanup/reconciliation; never blindly create a second reservation on retry. The early-release behavior in the `.proto` addresses delayed reserve arrival, but does not by itself solve process crashes or failed compensation. If release also fails, retain a durable recovery record and retry/reconcile it, or explicitly report that recovery as unimplemented. Never claim a best-effort release guarantees no leaked reservations under every failure.
+A timed-out reserve may have executed remotely. Use the same reservation UUID for cleanup/reconciliation; never blindly create a second reservation on retry. The early-release behavior in the `.proto` addresses delayed reserve arrival, but does not by itself solve process crashes or failed compensation. If release also fails, the committed intent remains pending. `orders:recover-reservations` reconciles pending intents older than five minutes; the Compose scheduler runs it every minute. Recovery locks the same intent and checks for a committed order before releasing stock, including after an ambiguous database commit response. A crash rolls back the in-flight core transaction and frees its lock, leaving the intent for recovery. A late checkout that loses to recovery refuses the released intent. Recovery retries use the original UUID and idempotent Release. Never claim a best-effort release guarantees no leaked reservations under every failure.
 
 For catalog browsing during outage, the existing outage collection expects catalog data to remain available with `stock_quantity: null` (unknown), while checkout returns 503. An unknown quantity must not be presented as real zero or used as permission to accept an order. Successful product detail requests retrieve current quantity through `GetStock`.
 
@@ -216,28 +222,29 @@ Existing artifacts:
 
 - [Main Postman collection](docs/api/NovaCart.postman_collection.json).
 - [Outage Postman collection](docs/api/NovaCart-inventory-outage.postman_collection.json).
-- [Race demonstration](docs/demo/race-condition.mjs).
+- [Race demonstration](docs/demo/race-condition.mjs), [slow inventory](docs/demo/slow-inventory.mjs), and [persistent restart](docs/demo/persistence-restart.mjs).
+- [Durable recovery demonstration](docs/demo/reservation-recovery.php) and [browser acceptance](docs/demo/gui-browser.mjs).
 
 ### Current implementation and verification — 2026-11-10
 
-The user pulled merged main at `5e06d54`, including all four core domains and the inventory branch. Work continues on `fix/requirements-1-2-verification`; earlier reports of missing implementation files referred to the infrastructure-only branch and no longer describe this checkout.
+Work is on `test/requirements-1-2-acceptance`, based on merged main `5e06d54`, with focused progressive commits. Main has not been changed or pushed.
 
-**Architecture:** a modular Laravel monolith plus the independent inventory service required by requirement 2. Core domains share one Laravel runtime and core database, with in-process calls/events. Node inventory owns its separate database and exposes gRPC. Nginx/PHP/database containers do not turn each core domain into a microservice. The architecture cleanup removed direct cross-module model/resource access, replaced it with public data/identity interfaces and snapshot events, and added the dependency guard described above.
+**Architecture:** a modular Laravel monolith plus the independent inventory service required by requirement 2. Core modules share one runtime/database and communicate through acyclic public interfaces and snapshot events. The scheduler runs the same monolith; it is not a new domain service. The source dependency guard passes.
 
-See [the verification record](docs/verification/requirements-1-2.md) for environment, exact scope, reproducible demos, failure evidence, applied changes, and rollback limitations. Current evidence:
+Technical requirements 1–2 and the agreed basic GUI have passing acceptance evidence:
 
-- 15 real gRPC/PostgreSQL tests passed, including new replay regressions and a legacy-schema upgrade test.
-- HTTP security/catalog/order/lifecycle checks passed through cached Nginx/PHP-FPM with separate database containers.
-- Last-unit race: 10 buyers, one 201, nine 409s, one saved order, stock 0.
-- Stopped inventory: bounded 503, unknown stock while browsing, and recovery after service IP change passed.
-- Slow inventory: bounded response and eventual cleanup of a delayed reservation passed.
-- Forced order-line persistence failure after real reservation rolled back the order, restored stock, and preserved the cart.
-- Fresh build remains unverified: the offline attempt lacked cached Composer archives. The full PHPUnit suite is also pending because development dependencies are unavailable. Hosted branch-protection/participation evidence remains unchecked.
-- Failed compensation currently logs its reservation ID but has no durable retry/reconciliation mechanism; process-crash recovery is not guaranteed.
+- App, web and inventory images built from source using cached base/native layers and locked dependencies; final app/web builds also passed with networking disabled. Six isolated containers booted with migrations, seeding and scheduled recovery.
+- **88 Laravel tests, 400 assertions**, with failure-on-warning/notice enabled, and **15 real gRPC/PostgreSQL tests** passed.
+- Real HTTP security/catalog/order/notifications and module-boundary demos passed. Last-unit test: ten buyers, one 201, nine 409s, one persisted order, stock zero.
+- Stopped inventory returned structured 503 in 1050 ms with a 500 ms test per-call deadline; stock visibility recovered in 370 ms after restart. Slow-service and persistence-failure demonstrations passed.
+- Real recovery demonstrated a process exiting with reserved stock, a failed release while inventory was down, and later stock restoration exactly once. Scheduler execution was observed.
+- Proxy-generated 413, 403 and 502 responses passed JSON/status/header checks. Browser tests passed customer checkout, notifications, administrator category/product/image creation and rendering, and order status changes, reload authentication, and a 390 px layout without overflow or runtime/CSP errors.
+- Complete restart of all six containers preserved six existing orders, catalog quantities and an existing JWT using disposable named database/storage volumes.
+- Dependency downloads totaled **31,284,418 bytes (29.84 MiB)** through a counting proxy capped at the approved 100 MiB. No images or host packages were downloaded.
 
-The verification gate remains open for the pending checks. Passing demonstrations do not establish complete milestone readiness. Requirement 3 remains deferred.
+[The verification record](docs/verification/requirements-1-2.md) preserves commands, detailed scope, earlier failures and current evidence. These are functional acceptance results, not proof against every distributed failure: recovery needs a reachable core database and eventual inventory availability; product administration and cancellation still span independent databases without a distributed transaction. No high-volume performance claim is made.
 
-The subsequent completeness audit confirmed a requirement-1 edge gap: Nginx returns HTML for a 7 MiB request rejected with 413, bypassing the unified JSON envelope. Normalize proxy-level API errors before sign-off. GitHub main protection and one-review enforcement are now verified, with five approved merged PRs visible; per-member coverage for each requirement still needs evidence. All earlier work commits are retained on `test/requirements-1-2-acceptance`, and the temporary local work branches have been removed. The detailed audit and source evidence are in the verification record.
+The **technical requirements 1–2 gate is satisfied** under the user's agreed scope. Course participation is explicitly set aside by the user; main protection/one-review enforcement was previously verified, but per-member coverage is not being signed off. Requirement 3 remains deferred and has no work branch yet.
 
 ## 6. Requirement 3 — deferred performance and caching milestone
 
@@ -269,6 +276,6 @@ Redis, a read replica, synthetic bulk data, and load tests are documented future
 
 Requirements 1–2 exclude payment providers, frontend visual polish, discounts/reviews/shipping integrations, and requirement 3 optimizations. Basic Notifications remains a required module; only asynchronous/real-time delivery is deferred. Requirements 4–6 concern asynchronous/real-time processing, scaling/load distribution, and monitoring/fault tracing; specific broker/APM products are not mandated by the supplied decks.
 
-Course workflow: one Git repository, protected main branch, teammate-reviewed pull requests for every change, and at least one PR per member per requirement. Any member may be questioned about any component (R12 slide 14). Branch protection and participation require repository-host evidence, which has not been checked here.
+Course workflow: one Git repository, protected main branch, teammate-reviewed pull requests for every change, and at least one PR per member per requirement. Any member may be questioned about any component (R12 slide 14). Branch protection and participation require repository-host evidence, previously checked in the verification record; per-member participation remains deferred by user instruction.
 
 The earlier spec's A–E division can remain an indicative team plan: infrastructure; users/security; products/documentation; orders/notifications; inventory/gRPC. These assignments and branch names are not instructor requirements and do not limit collective responsibility.

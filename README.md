@@ -2,7 +2,7 @@
 
 Coursework project for **Internet Applications (2026)** at Damascus University.
 
-> **Verification status (2026-11-10):** Core and inventory implementations are merged. Integration checks now pass for security, checkout, inventory concurrency, outages/recovery, and normal compensation. Fresh-build and full PHPUnit verification remain pending; proxy-level JSON errors and failed-compensation recovery are known gaps. See [the verification record](docs/verification/requirements-1-2.md) and [SPEC.md](SPEC.md). Source presentations are converted in [requirements 1–2](docs/requirements/requirements-1-2.md) and [requirement 3](docs/requirements/requirement-3.md). Requirement 3 remains deferred.
+> **Verification status (2026-11-10):** Requirements 1–2 technical acceptance passes, including the customer/admin GUI, source image builds, 88 Laravel tests (400 assertions), 15 real inventory tests, race/outage/compensation/recovery demonstrations and persistent-volume restart checks. Team participation is set aside by request. See [the verification record](docs/verification/requirements-1-2.md) and [SPEC.md](SPEC.md). [Requirements 1–2](docs/requirements/requirements-1-2.md) and [requirement 3](docs/requirements/requirement-3.md) are converted from the presentations. Requirement 3 remains deferred.
 
 This project targets a distributed, polyglot e-commerce platform for **Requirement 1 (API Design & Security)** and **Requirement 2 (Inter-Service Communication & Inventory Safety)**.
 
@@ -47,7 +47,7 @@ The Laravel core is a modular monolith with module-owned models and queries, pub
    - Standalone polyglot microservice running on port `50051`, backed by its own isolated PostgreSQL database.
    - Shared Protocol Buffers contract (`proto/inventory/v1/inventory.proto`) defining `GetStock`, `Reserve`, `Release`, and `SetStock`.
    - Concurrency safety: atomic row-level transactional locking (`SELECT ... FOR UPDATE` ordered by `product_id`) and database constraints (`CHECK (quantity >= 0)`), preventing deadlocks and race conditions.
-   - Two-phase checkout orchestration: orders execute an atomic all-or-nothing stock reservation prior to order persistence, executing a compensating release rollback if database persistence fails.
+   - Reservation and compensation checkout: orders execute an atomic all-or-nothing stock reservation prior to order persistence, executing a compensating release rollback if database persistence fails.
    - Fault tolerance: strict 2000ms gRPC client deadlines returning structured `503 Service Unavailable` with `Retry-After: 5` headers when the inventory service is stopped or degraded.
 
 ---
@@ -69,7 +69,7 @@ distributed-ecommerce/
 ├── docs/                 # Postman collections & concurrency verification scripts
 │   ├── api/              # NovaCart API & outage collections
 │   └── demo/             # race-condition.mjs test script
-├── docker-compose.yml    # Complete 5-container orchestration
+├── docker-compose.yml    # Complete 6-container orchestration
 └── SPEC.md               # Detailed system architectural specification
 ```
 
@@ -82,7 +82,7 @@ distributed-ecommerce/
 | **Member A** | Infrastructure, Docker & Contracts | `feature/docker-setup` | Multi-container Docker environment, base Laravel setup, and shared gRPC contract |
 | **Member B** | Users, Authentication & Security | `feature/auth-and-roles` | User registration, JWT lifecycle, RBAC, login rate limiting, and security headers |
 | **Member C** | Products, Catalog & Categories | `feature/product-catalog` | Product & category catalog endpoints, image uploads, and concurrency race demo |
-| **Member D** | Orders, IDOR & Two-Phase Checkout | `feature/order-management` | Cart persistence, orders domain, IDOR policies, and two-phase checkout orchestration |
+| **Member D** | Orders, IDOR & Checkout | `feature/order-management` | Cart persistence, orders domain, IDOR policies, and reservation/compensation checkout orchestration |
 | **Member E** | Inventory Microservice & gRPC | `feature/inventory-service` | Node.js gRPC inventory microservice, row-level locking, and Laravel gateway |
 
 ---
@@ -93,7 +93,9 @@ distributed-ecommerce/
 ```bash
 docker compose up -d --build
 ```
-The REST API is exposed at `http://localhost:8080/api/v1` (`GET /up` serves as the health check).
+Open the customer/admin GUI at **http://localhost:8080/**. The REST API is at `http://localhost:8080/api/v1`; `GET /up` is the application health endpoint. Set `ADMIN_EMAIL` and a nonempty `ADMIN_PASSWORD` in your environment before first startup to seed the administrator. Customers register in the GUI.
+
+The `scheduler` container retries abandoned checkout reservations every minute, after a five-minute grace period. You can also run `docker compose exec app php artisan orders:recover-reservations` manually. Keep it running for automatic recovery.
 
 ### Running Automated Test Suites
 ```bash
