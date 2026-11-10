@@ -31,7 +31,7 @@ These instructions apply throughout this repository.
 
 ## Collaboration and local environment
 
-- Group changes into focused branches and progressive commits. Use stacked branches for dependent work, and document each branch's base so reviews exclude earlier layers.
+- Keep requirements 1–2 work on `test/requirements-1-2-acceptance` with focused progressive commits. Create a separate requirement 3 branch when that milestone begins; the temporary branch stack has been retired.
 - Use feature branches and teammate-reviewed PRs for shared changes. Course participation and branch-protection requirements are in SPEC.md. Do not commit, push, or merge unless requested.
 - Write user-facing explanations in English. For interactive host instructions, use fish-compatible syntax and Arch/CachyOS package commands; container commands follow the container's own OS.
 - Keep network use lean. Obtain explicit authorization before installing dependencies/packages, downloading large files or container images, or starting/stopping/enabling services. State expected size before proposing large downloads.

@@ -1,6 +1,6 @@
 # Requirements 1 and 2 — verification record
 
-Date: 2026-11-10. Branch: `fix/requirements-1-2-verification`, based on merged main commit `5e06d54`.
+Date: 2026-11-10. Current branch: `test/requirements-1-2-acceptance`, based on merged main commit `5e06d54`. Initial runtime work was performed on the former `fix/requirements-1-2-verification` branch.
 
 ## Scope and environment
 
@@ -81,7 +81,7 @@ It can also be copied into the disposable app container and executed as `www-dat
 - **Full Laravel PHPUnit suite:** host PHP/Composer and development dependencies are absent; the cached production image has no PHPUnit. The existing feature/unit suites were not run. Real HTTP/kernel checks above do not replace every assertion in those suites.
 - **Compensation recovery:** `releaseQuietly()` attempts release but only logs when release also fails. There is no durable retry/reconciliation mechanism for a failed cleanup or process crash. Normal persistence-failure compensation and delayed-call compensation passed; stronger recovery remains a known gap.
 - **Module encapsulation:** the follow-up refactor below removes cross-module model/resource access and cycles. Module data ownership and public interfaces are documented in SPEC.md and checked by a standalone source guard.
-- **Hosting workflow:** protected-branch settings and each member's required reviewed PR participation were not audited against the hosting service.
+- **Hosting workflow:** the follow-up audit below confirms main protection and approved PRs. Per-member participation for each requirement still needs evidence.
 - Requirement 3 optimizations and performance benchmarks were not implemented.
 
 Accordingly, the required security, inventory race, outage, and normal compensation behaviors have passing integration evidence. The complete requirements 1–2 verification gate remains open for the pending build/PHPUnit/workflow checks; do not label the whole milestone fully verified.
@@ -90,7 +90,7 @@ Accordingly, the required security, inventory race, outage, and normal compensat
 
 The inventory schema change preserves existing reservations, but older inventory code does not understand persisted rejected outcomes. Roll back application and schema/data together from a backup, or use a fresh disposable database; do not simply start the old code against the upgraded reservation data. No real database was upgraded in this session.
 
-All named `novacart-verification-*` containers, their temporary network, and the dedicated storage volume are removed after testing. Source changes remain uncommitted on the verification branch for review. No host dotfiles integration is needed.
+All named `novacart-verification-*` containers, their temporary network, and the dedicated storage volume are removed after testing. The changes were subsequently organized into nine commits retained on the acceptance branch. No host dotfiles integration is needed.
 
 ## Modular-monolith cleanup follow-up — 2026-11-10
 
@@ -135,11 +135,11 @@ env BASE_URL=http://localhost:8080/api/v1 ADMIN_PASSWORD='TEST_ADMIN_PASSWORD' n
 
 The presentation test requires `APP_ENV=testing`, dependencies, and a disposable migrated database, and rolls back its fixtures. When running PHP demos in the app container, use `docker exec --user www-data TEST_APP_CONTAINER php SCRIPT_PATH` from its application working directory. A root CLI run had created a root-owned log file: subsequent PHP-FPM outage logging failed with HTTP 500. The failure reproduced, `stat`/a www-data write check confirmed the permissions, and restoring that **disposable** file to www-data plus rerunning as www-data fixed the harness. No application error-handling change was needed.
 
-Source refactoring and documentation remain uncommitted on `fix/requirements-1-2-verification`. Existing failed-compensation durability and hosted-workflow checks remain separate outstanding work. No requirement 3 feature was introduced.
+Source refactoring and documentation were subsequently committed and are retained on `test/requirements-1-2-acceptance`. Existing failed-compensation durability and hosted-workflow checks remain separate outstanding work. No requirement 3 feature was introduced.
 
-## Branch and commit organization
+## Historical branch and commit organization
 
-The reviewed work is organized into a local stack of five branches. Review each branch against its listed base, in this order; opening every branch against main would repeat changes from earlier layers. No branch was pushed and main was not modified.
+The reviewed work was initially organized into the following local stack. The user later chose one acceptance branch; these temporary local branch names have now been deleted after verifying that their commits are fully reachable from acceptance. The nine progressive commits are preserved. This table describes history, not current branch instructions. No branch was pushed and main was not modified.
 
 | Order | Branch | Base | Focused commits |
 | --- | --- | --- | --- |
@@ -150,3 +150,57 @@ The reviewed work is organized into a local stack of five branches. Review each 
 | 5 | `test/requirements-1-2-acceptance` | `refactor/modular-monolith` | Public acceptance/failure demos; final verification evidence and current docs |
 
 The final branch contains the complete combined result. Intermediate documentation describes its corresponding stage; final verification claims and this record are committed with the acceptance layer. A local stash named "Recovery snapshot before organizing requirements, fixes, architecture and acceptance commits" preserves the original uncommitted tree. Source files are checked against that snapshot after organization; only branch-workflow documentation is added during the split. Runtime results above predate this Git-only reorganization; creating commits does not constitute a new test run.
+
+## Requirements 1–2 completeness audit — 2026-11-10
+
+The user requested a fresh completeness check and consolidation onto `test/requirements-1-2-acceptance`. The working tree started clean. All six other local work branches (including the old infrastructure branch) were checked as ancestors of acceptance before deletion. Only local main and acceptance remain; remote branches were not changed. The acceptance history retains every commit.
+
+### Course scope coverage
+
+| Course obligation | Current assessment |
+| --- | --- |
+| Users, products/images, orders, inventory and status tracking | Implemented; previous real HTTP acceptance checks passed |
+| Four core modules / modular monolith | Implemented; current standalone dependency check passes; independent inventory remains the requirement-2 extraction |
+| Versioned REST, filtering, pagination and executable documentation | Implemented; Postman files parse and previous endpoint demonstrations passed |
+| JWT, own-order access, admin status changes, login limits and headers | Implemented; previous HTTP/security and expired-token checks passed |
+| Polyglot inventory, owned database, shared proto and query/reserve/release | Implemented; previous real gRPC/PostgreSQL suite passed |
+| Atomic multi-item reservation, shortage rejection and last-unit proof | Implemented; 15 inventory tests and the one-winner HTTP proof have passing evidence |
+| Stopped/slow inventory, bounded responses and normal save-failure compensation | Passing prior integration evidence; combined failures/crashes remain a stronger recovery gap |
+| Uniform errors for every interface failure | **Incomplete:** oversized requests rejected by Nginx return HTML rather than the JSON envelope |
+| Entire project reproducible from a clean Docker build | **Unverified:** only current-source runs over cached runtime images have passed |
+| Full existing Laravel feature/unit suite | **Unverified:** development dependencies/PHPUnit remain unavailable locally |
+| Protected main and teammate-reviewed PRs | Main protection and approvals confirmed through read-only GitHub API checks |
+| Every member has a PR for each requirement | **Not established:** five approved merged PRs are visible, one authored by each of five members; per-requirement coverage is not documented |
+
+No major core feature from the supplied first two presentations is absent. The error-format edge case is a concrete implementation gap; clean-build/PHPUnit results are missing verification, and contribution coverage is missing process evidence.
+
+### Confirmed proxy error-format gap — R1-06 / R12 slide 6
+
+`laravel-app/docker/nginx/default.conf` limits request bodies to 6 MiB and has no JSON error handler. A cached Nginx container was started with the **current source configuration**, no external network, and a dummy upstream host mapping. A Node.js client sharing that network namespace sent a 7 MiB request body with `Accept: application/json` to `/api/v1/admin/products`.
+
+Observed response: HTTP **413**, `Content-Type: text/html`, default Nginx HTML body. This rejection happens before Laravel or authentication, so `ApiError::reshape()` cannot normalize it. Corrective work should normalize proxy-level API errors (at least the reproduced oversized-upload case), then verify both status/body and relevant headers through Nginx. No proxy/application source fix was applied during this audit. Both temporary containers were removed, and no images or packages were downloaded.
+
+### Recovery gap — R2-07 / R12 slide 12
+
+`CheckoutService::releaseQuietly()` catches a failed release and only logs the reservation UUID. There is no durable recovery job/record/reconciliation path for a second failure or a crash after reserve and before order commit. The normal course demonstration (save fails, warehouse is reachable) passed. The deck does not explicitly prescribe crash recovery or a queue for combined failures, so distinguish this resilience gap from an absent basic release operation. The stronger recovery guarantee described in SPEC.md is not fully implemented.
+
+### Hosting evidence
+
+Read-only GitHub checks against [amjadabujeib/ecommerce](https://github.com/amjadabujeib/ecommerce) returned protected main, one required approving review, and the same main commit as local `5e06d54`. Five merged PRs were inspected; each had an approval:
+
+- [PR 1 — infrastructure](https://github.com/amjadabujeib/ecommerce/pull/1).
+- [PR 3 — inventory](https://github.com/amjadabujeib/ecommerce/pull/3).
+- [PR 4 — authentication/security](https://github.com/amjadabujeib/ecommerce/pull/4).
+- [PR 5 — catalog](https://github.com/amjadabujeib/ecommerce/pull/5).
+- [PR 6 — orders/notifications](https://github.com/amjadabujeib/ecommerce/pull/6).
+
+This satisfies the checked protection/review facts. It does not by itself prove each person's contribution for both requirements. Resolve that evidence as a team without fabricating or splitting work solely to inflate PR counts.
+
+### Before moving to requirement 3
+
+1. Fix and verify the reproduced Nginx JSON-error inconsistency.
+2. Obtain a clean Docker build/start result and run the complete Laravel suite in an environment with development dependencies. The previous offline build failure is not proof of a compiler defect, but it cannot count as a pass.
+3. Decide and document how to recover failed compensation/crash windows, consistent with the intended requirement-2 guarantee.
+4. Record legitimate per-member PR coverage for both course requirements.
+
+The earlier runtime passes remain valid historical evidence. This audit reran the architecture source guard and targeted the previously uncovered proxy path; it did not rerun the complete integration suite or claim the pending checks passed. Requirement 3 has not started and no requirement-3 branch was created.

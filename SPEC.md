@@ -237,6 +237,8 @@ See [the verification record](docs/verification/requirements-1-2.md) for environ
 
 The verification gate remains open for the pending checks. Passing demonstrations do not establish complete milestone readiness. Requirement 3 remains deferred.
 
+The subsequent completeness audit confirmed a requirement-1 edge gap: Nginx returns HTML for a 7 MiB request rejected with 413, bypassing the unified JSON envelope. Normalize proxy-level API errors before sign-off. GitHub main protection and one-review enforcement are now verified, with five approved merged PRs visible; per-member coverage for each requirement still needs evidence. All earlier work commits are retained on `test/requirements-1-2-acceptance`, and the temporary local work branches have been removed. The detailed audit and source evidence are in the verification record.
+
 ## 6. Requirement 3 — deferred performance and caching milestone
 
 Implement after the requirements 1–2 verification gate passes. Preserve JWT/ownership protections, inventory authority, reservation atomicity, and bounded failure handling throughout optimization.
