@@ -1,6 +1,8 @@
+import {createApiClient} from './api-client.js';
 const $ = selector => document.querySelector(selector);
 let token = sessionStorage.getItem('novacart-token');
 let user = null;
+let identityVersion = 0;
 let currentView = 'catalog';
 let catalogRequest = 0;
 let detailRequest = 0;
@@ -10,6 +12,15 @@ let lastCatalog = sessionStorage.getItem('novacart-last-catalog') || 'shop';
 let pendingAdd = null;
 let returnAfterAuth = null;
 let noticeTimer;
+const apiClient = createApiClient({
+    initialToken: token,
+    onToken(value) {
+        token = value;
+        if (value) sessionStorage.setItem('novacart-token', value);
+        else sessionStorage.removeItem('novacart-token');
+    },
+    onSessionEnded() { resetPrivateViews(); user = null; updateIdentity(); },
+});
 const scrollPositions = new Map();
 const money = value => new Intl.NumberFormat('en-US', {style: 'currency', currency}).format(Number(value));
 const node = (tag, text, className) => {
@@ -53,30 +64,22 @@ async function run(callback, button) {
         else notice(error.message, true);
     } finally { if (button) button.disabled = false; }
 }
-function setToken(value) {
-    token = value;
-    if (value) sessionStorage.setItem('novacart-token', value);
-    else sessionStorage.removeItem('novacart-token');
+function resetPrivateViews() {
+    identityVersion++;
+    for (const id of ['cart-content', 'order-list', 'order-pages', 'notification-list', 'notification-pages', 'admin-orders', 'admin-order-pages', 'admin-products', 'admin-product-pages', 'categories', 'dashboard']) {
+        document.getElementById(id)?.replaceChildren();
+    }
+    $('#cart-count').textContent = '0';
+    $('#product-editor')?.close();
 }
-async function api(path, {method = 'GET', body, refresh = true} = {}) {
-    const headers = {Accept: 'application/json'};
-    if (token) headers.Authorization = `Bearer ${token}`;
-    if (body && !(body instanceof FormData)) {
-        headers['Content-Type'] = 'application/json'; body = JSON.stringify(body);
-    }
-    const response = await fetch(`/api/v1${path}`, {method, headers, body});
-    const result = await response.json();
-    if (response.status === 401 && token && refresh) {
-        try {
-            const renewed = await api('/refresh', {method: 'POST', refresh: false});
-            setToken(renewed.token);
-        } catch {
-            setToken(null); user = null; updateIdentity();
-            throw new Error('Your session has ended. Please sign in again.');
-        }
-        return api(path, {method, body: typeof body === 'string' ? JSON.parse(body) : body, refresh: false});
-    }
-    if (!response.ok) throw new Error(Object.values(result.errors || {}).flat().join('\n') || result.message || `Request failed (${response.status}).`);
+function setToken(value) {
+    resetPrivateViews();
+    apiClient.setToken(value);
+}
+async function api(path, options = {}) {
+    const identity = identityVersion;
+    const result = await apiClient.request(path, options);
+    if (identity !== identityVersion) throw new Error('Your session changed. Please try again.');
     if (result.currency) currency = result.currency;
     return result;
 }
@@ -90,7 +93,8 @@ function updateIdentity() {
     if (!user) $('#cart-count').textContent = '0';
 }
 async function cartCount() {
-    if (user) $('#cart-count').textContent = (await api('/cart')).data.item_count;
+    const identity = identityVersion;
+    if (user) { const result = await api('/cart'); if (identity === identityVersion) $('#cart-count').textContent = result.data.item_count; }
 }
 function activate(view) {
     currentView = view;
@@ -229,7 +233,8 @@ async function product(id) {
     if (result.related?.length) { content.append(node('h2', 'You may also like')); const related = node('div', undefined, 'grid'); related.append(...result.related.map(item => productCard(item))); content.append(related); }
 }
 async function cart() {
-    const {data} = await api('/cart'); currency = data.currency; $('#cart-count').textContent = data.item_count;
+    const identity = identityVersion;
+    const {data} = await api('/cart'); if (identity !== identityVersion) return; currency = data.currency; $('#cart-count').textContent = data.item_count;
     const content = $('#cart-content'); content.replaceChildren();
     if (!data.items.length) { content.append(empty('Your cart is empty. Find something you like in the shop.')); return; }
     const layout = node('div', undefined, 'cart-layout'); const items = node('div');
@@ -255,7 +260,9 @@ async function cart() {
     layout.append(items, summary); content.append(layout);
 }
 async function orders(page = 1, isAdmin = false) {
+    const identity = identityVersion;
     const result = await api(`${isAdmin ? '/admin' : ''}/orders?page=${page}`);
+    if (identity !== identityVersion) return;
     const cards = result.data.map(order => {
         const card = node('article', undefined, 'panel order-card'); const heading = node('div', undefined, 'section-heading');
         heading.append(node('h3', `Order #${order.id}`), node('span', order.status_label, `status status-${order.status}`));
@@ -278,7 +285,9 @@ async function orders(page = 1, isAdmin = false) {
     pagination(isAdmin ? '#admin-order-pages' : '#order-pages', result, next => go(`${isAdmin ? 'admin/orders' : 'orders'}?page=${next}`));
 }
 async function notifications(page = 1) {
+    const identity = identityVersion;
     const result = await api(`/notifications?page=${page}`);
+    if (identity !== identityVersion) return;
     $('#read-all').disabled = !result.data.some(item => !item.read_at);
     $('#notification-list').replaceChildren(...result.data.map(item => {
         const card = node('article', undefined, `panel notification ${item.read_at ? '' : 'unread'}`);
@@ -290,7 +299,9 @@ async function notifications(page = 1) {
     pagination('#notification-pages', result, next => go(`notifications?page=${next}`));
 }
 async function categories() {
+    const identity = identityVersion;
     const {data} = await api('/admin/categories');
+    if (identity !== identityVersion) return;
     $('#categories').replaceChildren(...data.map(category => {
         const row = node('div', undefined, 'category-row');
         row.append(node('span', `${category.name} · ${category.products_count ?? 0} products`), action('Edit', () => {
@@ -305,7 +316,9 @@ async function categories() {
     if (!data.length) $('#categories').append(node('p', 'No categories yet. Add one to get started.'));
 }
 async function productEditor(id = null) {
+    const identity = identityVersion;
     const {data} = await api(id ? `/admin/products/${id}/edit` : '/admin/products/create');
+    if (identity !== identityVersion) return;
     const form = $('#product-form'); form.reset(); form.querySelector('[data-errors]').hidden = true;
     categoryOptions(form.elements.category_id, data.categories);
     $('#adjust-stock-control').hidden = !id;
@@ -322,17 +335,20 @@ async function productEditor(id = null) {
 }
 const editProduct = id => productEditor(id);
 async function adminProducts(page = 1) {
+    const identity = identityVersion;
     const result = await api(`/admin/products?page=${page}`);
+    if (identity !== identityVersion) return;
     $('#admin-products').replaceChildren(...(result.data.length ? result.data.map(item => productCard(item, true)) : [empty('No products yet. Use Add product to create your first listing.')]));
     pagination('#admin-product-pages', result, next => go(`admin/products?page=${next}`));
 }
 async function admin(tab = 'overview', page = 1) {
+    const identity = identityVersion;
     const panels = {overview: '#admin-overview', products: '#admin-product-panel', categories: '#admin-category-panel', orders: '#admin-order-panel'};
     if (!panels[tab]) tab = 'overview';
     for (const [name, selector] of Object.entries(panels)) $(selector).hidden = name !== tab;
     document.querySelectorAll('[data-admin-tab]').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.adminTab === tab)));
     if (tab === 'overview') {
-        const {data} = await api('/admin/dashboard'); currency = data.currency;
+        const {data} = await api('/admin/dashboard'); if (identity !== identityVersion) return; currency = data.currency;
         $('#dashboard').replaceChildren(...[
             ['Products', data.total_products], ['Orders', data.total_orders], ['Completed sales', money(data.total_sales)], ['Available units', data.stock_units ?? 'Unavailable'],
         ].map(([label, value]) => { const card = node('div', undefined, 'panel stat'); card.append(node('p', label), node('strong', value)); return card; }));
@@ -398,7 +414,7 @@ $('#category-form').addEventListener('reset', () => { $('#category-form').elemen
 $('.skip-link').addEventListener('click', event => { event.preventDefault(); $('#main').focus(); });
 window.addEventListener('hashchange', () => run(route));
 await run(async () => {
-    if (token) { try { user = (await api('/me')).data; } catch (error) { setToken(null); notice(error.message, true); } }
+    if (token) { try { user = (await api('/me')).data; } catch (error) { notice(error.message, true); } }
     updateIdentity();
     if (!location.hash) history.replaceState(null, '', '#/shop');
     if (user) await cartCount();
