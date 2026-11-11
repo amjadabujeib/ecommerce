@@ -2,7 +2,13 @@
 
 Coursework project for **Internet Applications (2026)** at Damascus University.
 
-> **Verification status (2026-11-11):** Requirements 1–2 technical acceptance passes, including the dark customer/admin GUI, source image builds, 89 Laravel tests (406 assertions), 15 real inventory tests, race/outage/compensation/recovery demonstrations and persistent-volume restart checks. Team participation is set aside by request. See [the final verification report](docs/verification/final-requirements-1-2.md) and [SPEC.md](SPEC.md). [Requirements 1–2](docs/requirements/requirements-1-2.md) and [requirement 3](docs/requirements/requirement-3.md) are converted from the presentations. Requirement 3 remains deferred.
+> **Verification status (2026-11-11):** Requirements 1–2 technical acceptance passes, including the dark customer/admin GUI, source image builds, 89 Laravel tests (406 assertions), 15 real inventory tests, race/outage/compensation/recovery demonstrations and persistent-volume restart checks. Team participation is set aside by request. See [the final verification report](docs/verification/final-requirements-1-2.md) and [SPEC.md](SPEC.md). [Requirements 1–2](docs/requirements/requirements-1-2.md) and [requirement 3](docs/requirements/requirement-3.md) are converted from the presentations. Requirement 3 is implemented and locally verified on `feat/requirement-3-performance`; see the [performance and consistency evidence](docs/performance/README.md). The optional performance Compose overlay adds Redis and a PostgreSQL standby.
+
+> **Deep-review remediation:** all five subsequently reported findings are corrected and verified with 101 Laravel tests (496 assertions) plus real concurrency, recovery and stalled-Redis demonstrations. See the [remediation evidence](docs/verification/2026-11-11-deep-review.md).
+
+> **Follow-up remediation:** all six additional findings are fixed and verified with 109 Laravel tests (535 assertions), real concurrency/restart checks and an actual browser. See the [follow-up evidence](docs/verification/2026-11-11-follow-up-review.md). The earlier five fixes remain in place.
+
+> **Continued hardening:** five further session/administration issues are fixed, with 121 Laravel tests, six client tests and real browser/concurrency verification. See the [continued verification record](docs/verification/2026-11-11-session-admin-hardening.md).
 
 This project targets a distributed, polyglot e-commerce platform for **Requirement 1 (API Design & Security)** and **Requirement 2 (Inter-Service Communication & Inventory Safety)**.
 

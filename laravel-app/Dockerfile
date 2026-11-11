@@ -58,4 +58,5 @@ CMD ["php-fpm"]
 FROM nginx:1.29-alpine AS web
 
 COPY docker/nginx/default.conf /etc/nginx/conf.d/default.conf
+COPY --chmod=755 docker/nginx/15-resolver.sh /docker-entrypoint.d/15-novacart-resolver.sh
 COPY --from=vendor /app/public /var/www/html/public

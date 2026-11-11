@@ -1,0 +1,61 @@
+{
+  "stage": "baseline",
+  "date": "2026-11-11T00:38:29.021Z",
+  "concurrency": 4,
+  "duration_seconds": 20,
+  "warmup_seconds": 3,
+  "results": [
+    {
+      "workload": "catalog",
+      "path": "/?page=1",
+      "requests": 2167,
+      "elapsed_seconds": 20.033671605,
+      "requests_per_second": 108.16789067557445,
+      "p50_ms": 35.855583999999,
+      "p95_ms": 44.65788799999973,
+      "p99_ms": 61.6714200000024,
+      "statuses": {
+        "200": 2167
+      }
+    },
+    {
+      "workload": "product",
+      "path": "/products/10001",
+      "requests": 2411,
+      "elapsed_seconds": 20.028422983000006,
+      "requests_per_second": 120.37892359505494,
+      "p50_ms": 32.098117000001366,
+      "p95_ms": 40.56742099999974,
+      "p99_ms": 54.45006500000454,
+      "statuses": {
+        "200": 2411
+      }
+    },
+    {
+      "workload": "admin_orders",
+      "path": "/admin/orders?page=1",
+      "requests": 140,
+      "elapsed_seconds": 20.508323640000004,
+      "requests_per_second": 6.826496521975113,
+      "p50_ms": 570.252204999997,
+      "p95_ms": 703.1479309999995,
+      "p99_ms": 729.1332919999986,
+      "statuses": {
+        "200": 140
+      }
+    },
+    {
+      "workload": "customer_orders",
+      "path": "/orders?page=1",
+      "requests": 156,
+      "elapsed_seconds": 20.345061155999996,
+      "requests_per_second": 7.667708580664245,
+      "p50_ms": 504.9699079999991,
+      "p95_ms": 654.4125789999962,
+      "p99_ms": 709.3084820000076,
+      "statuses": {
+        "200": 156
+      }
+    }
+  ]
+}

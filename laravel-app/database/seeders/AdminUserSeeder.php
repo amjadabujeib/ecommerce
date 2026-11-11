@@ -11,11 +11,17 @@ class AdminUserSeeder extends Seeder
 {
     public function run(): void
     {
-        $email = config('store.admin.email');
+        $email = Str::lower(trim(config('store.admin.email')));
         $username = config('store.admin.username');
         $password = config('store.admin.password');
 
-        $admin = User::query()->firstOrNew(['email' => $email]);
+        $matches = User::query()->whereRaw('LOWER(TRIM(email)) = ?', [$email])->get();
+        if ($matches->count() > 1) {
+            throw new \RuntimeException('Multiple accounts match the configured administrator email. Resolve the duplicate identities before seeding.');
+        }
+        $admin = $matches->first() ?? User::query()->where('username', $username)
+            ->where('role', UserRole::Admin->value)->first() ?? new User;
+        $admin->email = $email;
 
         if (! $admin->exists) {
             if (blank($password)) {

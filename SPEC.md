@@ -13,7 +13,7 @@ Source presentations, converted slide by slide into English:
 
 The presentations govern course obligations. This file governs the repository's chosen implementation of those obligations. README descriptions, collection assertions, comments, and example scripts are supporting evidence, not proof of correctness. When they disagree, reconcile them explicitly rather than silently changing the course scope.
 
-**Current priority:** establish and verify requirements 1 and 2 before implementing requirement 3. Requirement 3 is documented here for subsequent work. Requirements 4–6 are roadmap context only; their detailed specifications have not been supplied.
+**Current priority:** requirements 1–3 review hardening is locally verified, including the [continued session/administration fixes](docs/verification/2026-11-11-session-admin-hardening.md), [six follow-up fixes](docs/verification/2026-11-11-follow-up-review.md) and [earlier five fixes](docs/verification/2026-11-11-deep-review.md). Preserve the evidence and obtain shared review before merging `feat/requirement-3-performance`. Requirements 4–6 remain roadmap context only.
 
 ## 2. Course requirements and acceptance criteria
 
@@ -69,7 +69,7 @@ The core is one deployable Laravel modular monolith. Each module owns its querie
 | Module | Owned data / responsibility | Public integration surface |
 | --- | --- | --- |
 | Users | Users, authentication, roles, recipient identity/delivery | `Users\PublicApi\Actor` and `UserDirectory`: actor identity, batch profile values, notification delivery to user IDs/admins |
-| Products | Products, categories, images, catalog availability | `Products\PublicApi\Catalog` returns immutable `CatalogProduct` values; public stock/deletion errors and product lifecycle events |
+| Products | Products, categories, images, catalog availability | `Products\PublicApi\Catalog` returns immutable `CatalogProduct` values, including transaction-scoped `lockForCheckout` snapshots; public stock/deletion errors and product lifecycle events |
 | Orders | Carts, cart items, orders, order lines, checkout/lifecycle | Immutable `Orders\PublicApi\OrderSummary` and committed order events; subscribes to product deletion events using Orders-owned data |
 | Notifications | Notification payloads, inbox/read-state queries | Consumes order snapshots and asks Users' public directory to deliver framework notifications; inbox queries are scoped by actor ID |
 | Inventory adapter | PHP gRPC translation and deadlines | Existing `Inventory\Contracts`, `Data`, and `Exceptions`; generated messages/client code remain private to the adapter |
@@ -124,9 +124,23 @@ All paths below are relative to `/api/v1`:
 
 Do not introduce `/auth/login`, move product creation to `/products`, or move admin status updates to the customer namespace solely to match the old SPEC. Any deliberate route change must update clients, documentation, and tests together.
 
-Orders are created from the customer's cart (no client-supplied order prices). Validate positive integer quantities and existing product identifiers; resolve prices and total on the server and persist order-line price snapshots. Use exact monetary arithmetic. Product creation fields follow the collection: `title`, `description`, `price`, `category_id`, `image`, and initial `stock_quantity`. The upload target is JPG/PNG/WebP, at most 5 MB, validated by actual content/MIME and size.
+Orders are created from the customer's cart (no client-supplied order prices). Validate positive integer quantities and existing product identifiers; resolve prices and total on the server and persist order-line price snapshots. Use exact monetary arithmetic. Checkout obtains ordered primary product-row locks through Products\PublicApi\Catalog::lockForCheckout inside the cart/order transaction; product deletion uses those same rows, so it either wins before checkout validation or waits and refuses the newly pending order. Orders may total at most 99,999,999.99, matching NUMERIC(10,2); reject larger aggregates with field error `total_amount` and HTTP 422 before Reserve. Carts/orders allow at most 100 distinct products to fit the existing single-RPC inventory limit; reject new excess lines and preexisting oversized checkout with field error `cart` and HTTP 422. Serialize cart read/modify/write operations and checkout consumption using the same persistent cart-row lock; clear purchased contents in the order transaction so concurrent additions survive and one cart revision cannot be purchased twice. Product creation fields follow the collection: `title`, `description`, `price`, `category_id`, `image`, and initial `stock_quantity`. The upload target is JPG/PNG/WebP, at most 5 MB, validated by actual content/MIME and size.
 
-Use lowercase order statuses as documented in the collection: initial `pending`; transitions `pending -> completed`, `pending -> cancelled`, `completed -> cancelled`. Cancellation returns inventory at most once. Other transitions return 422. This lifecycle is a project choice, including cancellation of completed orders; adding fulfillment/payment semantics requires an explicit design change.
+Use lowercase order statuses as documented in the collection: initial `pending`; transitions `pending -> completed`, `pending -> cancelled`, `completed -> cancelled`. Cancellation returns inventory at most once. A durable cancellation intent commits before Release; while it is pending, incompatible status requests return 409. `orders:recover-cancellations` retries these intents every minute through the existing scheduler, including after an ambiguous Release response or local persistence failure. Order status becomes cancelled and the intent completed atomically; the public status enum remains unchanged. Other invalid transitions return 422. This lifecycle is a project choice, including cancellation of completed orders; adding fulfillment/payment semantics requires an explicit design change.
+
+Product creation requires initial stock. Product updates accept an optional `stock_quantity`: omitting it preserves live inventory; including it explicitly adjusts the absolute warehouse quantity. The GUI disables stock on metadata edits unless the administrator enables “Adjust warehouse stock when saving.” Generated category slugs fit VARCHAR(120), reserving space for collision suffixes even when Unicode transliteration expands a valid name.
+
+Registration requires confirmed passwords of at least eight characters, rejects NUL characters, and limits bcrypt inputs to 72 UTF-8 bytes before hashing. These validation failures return 422 field errors, not server errors.
+
+Catalog defaults bootstrap once through a transactional `bootstrap_state` ledger. On upgrade, any existing users/categories/products mark catalog bootstrap complete, preserving managed edits and intentionally empty catalogs. Fresh installations initialize defaults and mark completion in one transaction. Subsequent full or individual catalog seed runs skip completed bootstrap; administrator credential synchronization remains separate. Preserve the ledger in backups and do not reset it to repair a managed catalog. Nginx discovers the container runtime's DNS and re-resolves the PHP backend (five-second DNS cache), allowing recovery after app restarts/IP changes on Docker or Podman.
+
+Category creation and rename allocate names/slugs inside a Products-owned transaction and a PostgreSQL transaction-level advisory lock for the whole namespace. Name uniqueness is rechecked after acquiring that lock; the database unique constraints remain authoritative. SQLite behavior tests do not establish concurrent PostgreSQL correctness.
+
+Product image replacement and deletion read the current image path while holding the product row lock. Post-commit cleanup removes that captured superseded file rather than a stale route-bound path.
+
+Authentication rate limits normalize only string email values; malformed types reach normal field validation. Administrator bootstrap trims/lowercases configured email, finds canonical legacy identities without duplicating usernames, and can retain the configured administrator's ID when its address changes. Ambiguous legacy case variants are refused rather than silently merged/promoted; resolve ownership explicitly before retrying bootstrap.
+
+The GUI API client shares one refresh per current token, preserves credentials on transient refresh/startup outages, and rejects responses from an earlier login. Explicit sign-out/account changes clear private views; delayed responses cannot replay mutations under another account or repopulate its private panels. Token rotation stays within the same session. This coordination is per GUI client; server blacklist grace remains unchanged.
 
 ### Response and security contract
 
@@ -154,7 +168,8 @@ Use the error envelope already asserted by the Postman collection and described 
 | Forbidden role or foreign existing order | 403 |
 | Missing resource | 404 |
 | Stock shortage or documented business conflict | 409 |
-| Invalid input, empty cart, invalid transition | 422 |
+| Invalid input, empty cart, invalid transition, excessive cart lines or order total | 422 |
+| Order cancellation pending recovery; incompatible status change | 409 |
 | Rate limit exceeded | 429 |
 | Unexpected local persistence failure | 500 |
 | Inventory unavailable/deadline exceeded | 503 with `Retry-After: 5` |
@@ -190,12 +205,12 @@ Choose transactional row locking (`SELECT ... FOR UPDATE`) with locks acquired i
 
 Checkout coordination is **reservation followed by local commit with compensation**, not a distributed two-phase commit protocol:
 
-1. Authenticate and validate the cart; snapshot requested items and authoritative prices.
-2. Generate a stable reservation UUID and commit a `checkout_reservations` intent before contacting inventory. Lock that intent in a new core transaction and call `Reserve` once for all items.
+1. Authenticate, generate a stable reservation UUID, and commit a `checkout_reservations` intent outside the subsequent cart/order transaction so it survives process death.
+2. In a new core transaction, lock that intent, then the customer cart row before reading it. Validate line count and aggregate monetary bounds, snapshot authoritative prices, and call `Reserve` once for all items.
 3. On `REJECTED`, return 409 with shortages and create no order. `RELEASED` must not be treated as a successful reservation.
-4. On `RESERVED`, save the order and lines in a local transaction, associate its reservation UUID, and mark the intent committed in that same transaction; return 201 after commit.
+4. On `RESERVED`, save the order and lines in a local transaction, associate its reservation UUID, mark the intent committed and clear the purchased cart in that same transaction; return 201 after commit.
 5. If saving fails, roll back the local transaction and invoke idempotent `Release` for that UUID. Verify stock restoration and return a structured local failure.
-6. Clear the cart and create notifications according to committed order state. A notification failure after commit must not release stock for an already committed order.
+6. Publish notifications only after order/cart commit. If validation fails before any Reserve attempt, finish the unused intent locally without a remote Release. A notification failure after commit must not release stock for an already committed order.
 
 Every RPC has an explicit deadline, default `INVENTORY_TIMEOUT_MS=2000`. Map unavailable/expired-deadline calls to a safe 503 response. Measure end-to-end duration, accounting for any compensation calls; a per-call deadline does not imply the entire HTTP request finishes in exactly 2000 ms.
 
@@ -251,11 +266,11 @@ Technical requirements 1–2 and the agreed basic GUI have passing acceptance ev
 
 The **technical requirements 1–2 gate is satisfied** under the user's agreed scope. Course participation is explicitly set aside by the user; main protection/one-review enforcement was previously verified, but per-member coverage is not being signed off. Requirement 3 remains deferred and has no work branch yet.
 
-## 6. Requirement 3 — deferred performance and caching milestone
+## 6. Requirement 3 — active performance and caching milestone
 
-Implement after the requirements 1–2 verification gate passes. Preserve JWT/ownership protections, inventory authority, reservation atomicity, and bounded failure handling throughout optimization.
+The user advanced to this milestone after the requirements 1–2 technical gate passed. Implementation and evidence are tracked in [the performance record](docs/performance/README.md). Preserve JWT/ownership protections, inventory authority, reservation atomicity, and bounded failure handling throughout optimization.
 
-| ID | Course obligation | Future acceptance evidence | Source |
+| ID | Course obligation | Acceptance evidence | Source |
 | --- | --- | --- | --- |
 | R3-01 | Measure, change one thing, measure again | Comparable baseline/after runs with explanations; unsupported speed claims do not count | R3 slides 3–4 |
 | R3-02 | Realistic database scale and query optimization | Hundreds of thousands of synthetic orders, recorded `EXPLAIN` plans, justified indexes/query changes, identified and fixed N+1 queries | R3 slide 6 |
@@ -265,17 +280,19 @@ Implement after the requirements 1–2 verification gate passes. Preserve JWT/ow
 | R3-06 | HTTP conditional caching | Product response has ETag; matching conditional request returns bodyless 304; mutation changes data/ETag | R3 slide 9 |
 | R3-07 | Reproducible load testing | Same k6/equivalent workload before/after; report p50, p95, p99 and requests/second; explain observed behavior | R3 slides 10–11 |
 
-Future implementation decisions to make from measured evidence:
+Implemented decisions and evidence:
 
-- Select slow endpoints, datasets, concurrency, duration, warmup, and comparable cache conditions. Record hardware/runtime settings, query counts, failures, and latency units. The course gives no numeric latency or throughput threshold.
-- Choose indexes from query plans and explain write/storage costs. Keep correctness checks alongside performance measurements.
-- Route consistency-sensitive reads to the primary or use another demonstrated read-your-writes mechanism. Define its scope across separate HTTP requests; same-request connection stickiness alone may not satisfy the demonstration.
-- Define Redis keys with all relevant pagination/filter/authorization dimensions. Invalidate after committed mutations. Prevent an old replica read from refilling a just-invalidated cache with stale data.
-- Keep the inventory service authoritative for reservation decisions. Cached availability never replaces atomic `Reserve`; separate cacheable catalog fields from changing stock as needed.
-- ETags must describe the actual selected representation, including stock if stock is included. Use `If-None-Match` for conditional requests. Keep private order/notification data out of shared public caches.
-- A bodyless 304 is a valid protocol response, not an error requiring the JSON error envelope.
+- [Performance record](docs/performance/README.md) contains the 200,000-order / 600,000-line dataset, baseline plans, cumulative one-index-at-a-time plans, before/after p50/p95/p99/RPS, and a controlled replica-then-cache comparison. All recorded requests returned 200. Local shared-host timing limitations are explicit.
+- Three measured indexes cover order-item lookup, newest orders, and customer/newest orders. The existing batched presentation already keeps one and eight orders at five SQL queries; no new N+1 fix is claimed.
+- [Performance Compose overlay](docker-compose.performance.yml) adds a physical PostgreSQL standby with automatic WAL streaming, a SELECT-only reader, and Redis. It supports an existing primary volume. It is optional; plain Compose remains the requirements 1–2 deployment.
+- Eligible GET reads use a request-scoped infrastructure router. Authentication, authorization, route binding, writes, CLI jobs, cart/checkout quotation reads and order placement stay primary. A monotonic per-user committed WAL fence is saved before successful business-write responses; later requests fall back to primary until replay catches up. This covers the caller's writes across requests; it does not impose global strong consistency on all order readers.
+- Product/category triggers advance a primary catalog version atomically with catalog writes. Versioned Redis keys include pagination/filter/detail dimensions, expire after 60 seconds by default, and make old in-flight fills unreachable. Cache misses use the standby only when its catalog version is current. Redis outages bypass caching.
+- Redis cache-only connections default to 0.5-second connect and read/write timeouts (`REDIS_CACHE_TIMEOUT`, `REDIS_CACHE_READ_WRITE_TIMEOUT`) and zero retries. Prove fallback with a stalled server as well as a refused connection.
+- Cache only catalog facts. Fetch stock live through gRPC and preserve atomic reservation authority. No private order, notification or authentication data enters the shared catalog cache.
+- Product ETags describe complete JSON including stock/related products. CORS allows `If-None-Match` and exposes `ETag` for browser clients on allowed origins. Matching `If-None-Match` returns an empty 304; changing catalog or stock produces 200 and a new tag. These responses are private and require revalidation. A bodyless 304 is a valid protocol response rather than a JSON error.
+- [Consistency demonstration](docs/performance/verify-consistency.mjs) pauses real replay, verifies immediate product/new-customer/new-order visibility and stock-sensitive ETags, resumes replay in `finally`, and proves return to replica reads. Guards pin it to disposable `novacart-perf` containers/data. [Postman conditional checks](docs/api/NovaCart-performance.postman_collection.json) supplement the existing collections; existing endpoint contracts and race script remain compatible.
 
-Redis, a read replica, synthetic bulk data, and load tests are documented future work here. This task does not install, provision, seed, or benchmark them.
+Requirement 3 checks and the corrected deeper-review regressions are recorded in the performance report. The live requirements 1–2 deployment has not been replaced. Existing dependency-audit Symfony advisories remain a separate maintenance item; exploitability was not assessed here. The 30 MiB download authorization was respected; later builds used cached layers offline.
 
 ## 7. Scope and team workflow
 

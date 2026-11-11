@@ -11,6 +11,7 @@ use App\Modules\Users\PublicApi\Actor;
 use Illuminate\Auth\AuthenticationException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 /**
  * The signed-in customer's shopping cart, stored in the database. Only product
@@ -22,6 +23,9 @@ use Illuminate\Support\Facades\DB;
  */
 final class CartService
 {
+    /** Existing inventory Reserve limit; a cart must fit one atomic RPC. */
+    public const int MAX_LINES = 100;
+
     public function __construct(
         private readonly Request $request,
         private readonly Catalog $products,
@@ -43,6 +47,11 @@ final class CartService
      * @return list<array{product: CatalogProduct, quantity: int, line_total: float}>
      */
     public function items(): array
+    {
+        return $this->locked(fn (): array => $this->readItems());
+    }
+
+    private function readItems(): array
     {
         $cart = $this->raw();
 
@@ -97,7 +106,13 @@ final class CartService
 
     public function add(CatalogProduct $product, int $quantity): void
     {
+        $this->locked(fn () => $this->addUnlocked($product, $quantity));
+    }
+
+    private function addUnlocked(CatalogProduct $product, int $quantity): void
+    {
         $cart = $this->raw();
+        $this->assertLineFits($cart, $product->id);
         $desired = ($cart[$product->id] ?? 0) + $quantity;
         $available = $this->products->availableUnits($product->id);
 
@@ -111,6 +126,11 @@ final class CartService
 
     public function updateQuantity(CatalogProduct $product, int $quantity): void
     {
+        $this->locked(fn () => $this->updateQuantityUnlocked($product, $quantity));
+    }
+
+    private function updateQuantityUnlocked(CatalogProduct $product, int $quantity): void
+    {
         $cart = $this->raw();
 
         if ($quantity < 1) {
@@ -120,6 +140,7 @@ final class CartService
             return;
         }
 
+        $this->assertLineFits($cart, $product->id);
         $available = $this->products->availableUnits($product->id);
 
         if ($quantity > $available) {
@@ -132,6 +153,11 @@ final class CartService
 
     public function remove(int $productId): void
     {
+        $this->locked(fn () => $this->removeUnlocked($productId));
+    }
+
+    private function removeUnlocked(int $productId): void
+    {
         $cart = $this->raw();
         unset($cart[$productId]);
         $this->store($cart);
@@ -139,11 +165,36 @@ final class CartService
 
     public function clear(): void
     {
+        $this->locked(fn () => $this->clearUnlocked());
+    }
+
+    private function clearUnlocked(): void
+    {
         $user = $this->owner();
 
         CartItem::query()
             ->whereHas('cart', fn ($query) => $query->where('user_id', (int) $user->getAuthIdentifier()))
             ->delete();
+    }
+
+    private function assertLineFits(array $cart, int $productId): void
+    {
+        if (! array_key_exists($productId, $cart) && count($cart) >= self::MAX_LINES) {
+            throw ValidationException::withMessages(['cart' => 'A cart may contain at most 100 different products.']);
+        }
+    }
+
+    /** Serialize all mutations and checkout consumption on the same persistent row. */
+    public function locked(callable $work): mixed
+    {
+        $user = $this->owner();
+
+        return DB::transaction(function () use ($user, $work): mixed {
+            $cart = Cart::query()->firstOrCreate(['user_id' => (int) $user->getAuthIdentifier()]);
+            Cart::query()->whereKey($cart->id)->lockForUpdate()->firstOrFail();
+
+            return $work();
+        });
     }
 
     /**

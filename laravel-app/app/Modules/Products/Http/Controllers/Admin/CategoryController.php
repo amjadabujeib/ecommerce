@@ -8,6 +8,7 @@ use App\Modules\Products\Http\Requests\StoreCategoryRequest;
 use App\Modules\Products\Http\Requests\UpdateCategoryRequest;
 use App\Modules\Products\Http\Resources\CategoryResource;
 use App\Modules\Products\Models\Category;
+use App\Modules\Products\Services\CategoryService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
 
@@ -27,9 +28,9 @@ final class CategoryController extends Controller
         return CategoryResource::collection($categories)->response();
     }
 
-    public function store(StoreCategoryRequest $request): JsonResponse
+    public function store(StoreCategoryRequest $request, CategoryService $categories): JsonResponse
     {
-        $category = Category::query()->create($request->validated());
+        $category = $categories->create($request->validated('name'));
 
         return response()->json([
             'message' => "Category \"{$category->name}\" was created.",
@@ -37,9 +38,9 @@ final class CategoryController extends Controller
         ], 201);
     }
 
-    public function update(UpdateCategoryRequest $request, Category $category): JsonResponse
+    public function update(UpdateCategoryRequest $request, Category $category, CategoryService $categories): JsonResponse
     {
-        $category->update($request->validated());
+        $category = $categories->rename($category, $request->validated('name'));
 
         return response()->json([
             'message' => "Category \"{$category->name}\" was updated.",

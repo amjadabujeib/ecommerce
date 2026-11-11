@@ -1,0 +1,18 @@
+# Disposable benchmark overlay; use after the two root Compose files.
+services:
+  app:
+    environment:
+      APP_ENV: testing
+      DB_DATABASE: novacart_perf
+      PERFORMANCE_LOAD_TESTING: "true"
+      PERFORMANCE_DIAGNOSTICS: "true"
+  scheduler:
+    environment:
+      APP_ENV: testing
+      DB_DATABASE: novacart_perf
+  db:
+    environment:
+      POSTGRES_DB: novacart_perf
+  replication-setup:
+    environment:
+      POSTGRES_DB: novacart_perf

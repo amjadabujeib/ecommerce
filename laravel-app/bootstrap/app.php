@@ -1,7 +1,9 @@
 <?php
 
+use App\Http\Middleware\ReadConsistency;
 use App\Http\Middleware\SecurityHeaders;
 use App\Modules\Inventory\Exceptions\InventoryUnavailableException;
+use App\Modules\Orders\Exceptions\CancellationPendingException;
 use App\Modules\Orders\Exceptions\EmptyCartException;
 use App\Modules\Orders\Exceptions\InvalidOrderTransitionException;
 use App\Modules\Products\Exceptions\CategoryInUseException;
@@ -30,11 +32,17 @@ return Application::configure(basePath: dirname(__DIR__))
     )
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->append(SecurityHeaders::class);
+        $middleware->append(ReadConsistency::class);
         $middleware->throttleApi();
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         // API failures keep their JSON contract regardless of Accept headers.
         $exceptions->shouldRenderJsonWhen(fn ($request) => $request->is('api/*') || $request->expectsJson());
+
+        $exceptions->map(
+            CancellationPendingException::class,
+            fn ($e): HttpException => new ConflictHttpException($e->getMessage(), $e),
+        );
 
         // Domain exceptions stay HTTP-agnostic; their status codes live here.
         $exceptions->map(

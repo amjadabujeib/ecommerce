@@ -16,6 +16,7 @@ use App\Modules\Products\PublicApi\InsufficientStockException;
 use App\Modules\Users\PublicApi\Actor;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 use Throwable;
 
 /**
@@ -42,43 +43,50 @@ final class CheckoutService
 
     public function placeOrder(Actor $user): Order
     {
-        $cart = array_filter($this->cart->raw(), fn (int $quantity): bool => $quantity >= 1);
-
-        if ($cart === []) {
-            throw new EmptyCartException;
-        }
-
-        $products = $this->products->findMany(array_keys($cart));
-
-        if (count($products) !== count($cart)) {
-            throw new EmptyCartException(
-                'A product in your cart is no longer available. Please review your cart.',
-            );
-        }
-
-        // Chosen here, not by the inventory, so that a call that timed out can
-        // still be matched to (and released by) the same id.
+        // Journal outside the cart/order transaction so process death cannot
+        // roll back the only durable evidence of a remote reservation.
         $reservationId = (string) Str::uuid();
-
         $this->recovery->begin($reservationId);
-
+        $reserveAttempted = false;
         try {
-            $order = DB::transaction(function () use ($user, $cart, $products, $reservationId): Order {
+            $order = DB::transaction(function () use ($user, $reservationId, &$reserveAttempted): Order {
                 $this->recovery->lock($reservationId);
-                $this->reserve($reservationId, $cart, $products);
-                $order = $this->createOrder($user, $cart, $products, $reservationId);
-                $this->recovery->committed($reservationId);
-                return $order;
+
+                return $this->cart->locked(function () use ($user, $reservationId, &$reserveAttempted): Order {
+                    $cart = array_filter($this->cart->raw(), fn (int $quantity): bool => $quantity >= 1);
+                    if ($cart === []) {
+                        throw new EmptyCartException;
+                    }
+                    if (count($cart) > CartService::MAX_LINES) {
+                        throw ValidationException::withMessages(['cart' => 'An order may contain at most 100 different products.']);
+                    }
+                    $products = $this->products->lockForCheckout(array_keys($cart));
+                    if (count($products) !== count($cart)) {
+                        throw new EmptyCartException('A product in your cart is no longer available. Please review your cart.');
+                    }
+                    // Validate the aggregate before any inventory side effect.
+                    $totalCents = 0;
+                    foreach ($cart as $id => $quantity) {
+                        $totalCents += (int) round((float) $products[$id]->price * 100) * $quantity;
+                        if ($totalCents > 9_999_999_999) {
+                            throw ValidationException::withMessages([
+                                'total_amount' => 'The order total must not exceed 99,999,999.99.',
+                            ]);
+                        }
+                    }
+                    $reserveAttempted = true;
+                    $this->reserve($reservationId, $cart, $products);
+                    $order = $this->createOrder($user, $cart, $products, $reservationId);
+                    $this->cart->clear();
+                    $this->recovery->committed($reservationId);
+
+                    return $order;
+                });
             });
         } catch (Throwable $exception) {
-            // The stock is held by the inventory but the order does not exist:
-            // give the units back before reporting the failure.
-            $this->recovery->release($reservationId);
-
+            $this->recovery->release($reservationId, $reserveAttempted);
             throw $exception;
         }
-
-        $this->cart->clear();
 
         OrderPlaced::dispatch($order->summary());
         $this->presentation->prepare($order);
@@ -154,5 +162,4 @@ final class CheckoutService
 
         return $order->load('items');
     }
-
 }

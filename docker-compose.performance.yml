@@ -1,0 +1,66 @@
+# Optional requirement 3 services. Use together with docker-compose.yml.
+services:
+  db:
+    command: ["postgres", "-c", "wal_level=replica", "-c", "max_wal_senders=10", "-c", "max_replication_slots=10", "-c", "wal_keep_size=128MB", "-c", "hba_file=/etc/novacart/pg_hba.conf"]
+    volumes:
+      - ./laravel-app/docker/postgres/pg_hba.conf:/etc/novacart/pg_hba.conf:ro
+  replication-setup:
+    image: postgres:17-alpine
+    restart: "no"
+    entrypoint: ["/bin/sh", "/opt/novacart/setup-replication.sh"]
+    environment:
+      POSTGRES_USER: novacart
+      POSTGRES_DB: novacart
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-novacart}
+      REPLICATION_PASSWORD: ${REPLICATION_PASSWORD:-novacart_replication}
+      DB_READ_PASSWORD: ${DB_READ_PASSWORD:-novacart_read}
+    volumes:
+      - ./laravel-app/docker/postgres/setup-replication.sh:/opt/novacart/setup-replication.sh:ro
+    depends_on:
+      db:
+        condition: service_healthy
+  db-replica:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    entrypoint: ["/bin/sh", "/opt/novacart/standby.sh"]
+    environment:
+      PGDATA: /var/lib/postgresql/data
+      REPLICATION_PASSWORD: ${REPLICATION_PASSWORD:-novacart_replication}
+    volumes:
+      - replica-pgdata:/var/lib/postgresql/data
+      - ./laravel-app/docker/postgres/standby.sh:/opt/novacart/standby.sh:ro
+    depends_on:
+      replication-setup:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U novacart_reader"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+  redis:
+    image: docker.io/library/redis@sha256:e4ee3e03ce8f75471f40937a7c6b2b0e500390b6812fcdf5cb32c01295ded446
+    restart: unless-stopped
+    command: ["redis-server", "--save", "", "--appendonly", "no", "--maxmemory", "256mb", "--maxmemory-policy", "noeviction"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+  app:
+    environment: &performance-environment
+      PERFORMANCE_ENABLED: "true"
+      READ_REPLICA_ENABLED: "true"
+      CATALOG_CACHE_ENABLED: "true"
+      DB_READ_HOST: db-replica
+      DB_READ_PASSWORD: ${DB_READ_PASSWORD:-novacart_read}
+      REDIS_CLIENT: predis
+      REDIS_HOST: redis
+    depends_on:
+      db-replica:
+        condition: service_healthy
+      redis:
+        condition: service_started
+  scheduler:
+    environment: *performance-environment
+volumes:
+  replica-pgdata:

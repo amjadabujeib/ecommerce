@@ -20,7 +20,17 @@ class RegisterRequest extends FormRequest
         return [
             'username' => ['required', 'string', 'max:50', 'regex:/^[a-zA-Z0-9 ]+$/', 'unique:users,username'],
             'email' => ['required', 'string', 'email', 'max:255', 'unique:users,email'],
-            'password' => ['required', 'string', 'min:8', 'confirmed'],
+            'password' => ['required', 'string', 'min:8', 'confirmed', function ($attribute, $value, $fail): void {
+                if (! is_string($value)) {
+                    return;
+                }
+                if (str_contains($value, "\0")) {
+                    $fail('The password must not contain NUL characters.');
+                }
+                if (config('hashing.driver', 'bcrypt') === 'bcrypt' && strlen($value) > 72) {
+                    $fail('The password must not exceed 72 bytes for bcrypt.');
+                }
+            }],
         ];
     }
 

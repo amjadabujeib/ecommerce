@@ -5,58 +5,52 @@ namespace App\Modules\Products\Http\Controllers;
 use App\Http\Controllers\Controller;
 use App\Modules\Products\Http\Resources\CategoryResource;
 use App\Modules\Products\Http\Resources\ProductResource;
-use App\Modules\Products\Models\Category;
 use App\Modules\Products\Models\Product;
-use App\Modules\Products\Services\ProductService;
+use App\Modules\Products\Services\CatalogReader;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 final class ProductController extends Controller
 {
-    public function index(Request $request, ProductService $productService): JsonResponse
+    public function index(Request $request, CatalogReader $catalog): JsonResponse
     {
         $filters = $request->validate([
             'q' => ['nullable', 'string', 'max:100'],
             'category' => ['nullable', 'integer', 'exists:categories,id'],
         ]);
-
-        $products = Product::query()
-            ->with('category')
-            ->search($filters['q'] ?? null)
-            ->inCategory($filters['category'] ?? null)
-            ->latest()
-            ->paginate(9)
-            ->withQueryString();
-
-        // One gRPC call for the whole page.
-        $productService->withStock($products->getCollection());
-
-        return ProductResource::collection($products)->additional([
-            'categories' => CategoryResource::collection(Category::query()->orderBy('name')->get())->resolve(),
-            'currency' => config('store.currency'),
+        [$products,$categories] = $catalog->listing($filters, max(1, (int) $request->query('page', 1)));
+        $response = ProductResource::collection($products)->additional([
+            'categories' => CategoryResource::collection($categories)->resolve(), 'currency' => config('store.currency'),
         ])->response();
+
+        return $this->diagnostics($response, $catalog);
     }
 
-    public function show(Product $product, ProductService $productService): JsonResponse
+    public function show(Request $request, Product $product, CatalogReader $catalog): JsonResponse
     {
-        $product->load('category');
-
-        $related = Product::query()
-            ->with('category')
-            ->where('category_id', $product->category_id)
-            ->where('id', '!=', $product->id)
-            ->latest()
-            ->limit(3)
-            ->get();
-
-        // Ask the inventory service how many units are left, in one call for
-        // the product and its related items.
-        $productService->withStock([$product, ...$related]);
-
-        return response()->json([
+        // Primary route binding still enforces existence before cached reads.
+        [$product,$related] = $catalog->detail($product->id);
+        $response = response()->json([
             'data' => (new ProductResource($product))->resolve(),
             'related' => ProductResource::collection($related)->resolve(),
             'currency' => config('store.currency'),
         ]);
+        if (config('performance.enabled')) {
+            $response->setPrivate();
+            $response->headers->addCacheControlDirective('no-cache');
+            $response->setEtag(hash('sha256', $response->getContent()));
+            $response->isNotModified($request);
+        }
+
+        return $this->diagnostics($response, $catalog);
+    }
+
+    private function diagnostics(JsonResponse $response, CatalogReader $catalog): JsonResponse
+    {
+        if (app()->environment('testing') && config('performance.diagnostics')) {
+            $response->headers->set('X-Catalog-Cache', $catalog->cacheStatus);
+        }
+
+        return $response;
     }
 }
