@@ -27,6 +27,11 @@ final class ReadRouter
 
     public function connection(): ?string
     {
+        // A different actor may have changed a price since this customer's
+        // last write. Their WAL fence cannot validate a checkout quotation.
+        if ($this->request->is('api/v1/cart', 'api/v1/checkout')) {
+            return null;
+        }
         if (app()->runningInConsole() || ! config('performance.replica') || config('database.default') !== 'pgsql' || ! $this->request->isMethod('GET')) {
             return null;
         }

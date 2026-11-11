@@ -68,8 +68,8 @@ a physical replication slot. The setup job also works with an existing primary
 volume; it creates replication credentials, a SELECT-only application role and
 default SELECT privileges for future migrations. Redis has no published host port.
 
-Writes, authentication, authorization, route binding, command-line jobs, and
-checkout decisions stay on the primary. Eligible order lists, dashboard order
+Writes, authentication, authorization, route binding, command-line jobs, cart
+quotations, checkout previews and order placement stay on the primary. Eligible order lists, dashboard order
 reads, catalog reads and batched profile/product enrichment use the standby.
 After a successful authenticated business write, middleware saves the primary's
 committed WAL position as a monotonic per-user fence in the primary database.
@@ -218,3 +218,23 @@ primary-only indexed reads, catalog gains were smaller, and order reads carried
 the extra cost of replica connections and fence checks. The large baseline-to-final
 improvement on orders comes from the measured indexes, not Redis. The short local
 runs are suitable course evidence, not production sizing or a statistical guarantee.
+
+## Follow-up review
+
+Two independent standards/specification reviews found the same price-consistency
+regression: with a customer's existing cart already replicated, pausing replay
+and changing its product price as another administrator left cart/checkout
+previews on the old price, while order placement used the new primary price.
+The expanded real-HTTP demonstration reproduced a failing `19.99` versus `20.99`
+cart subtotal before the fix. The router now keeps `/api/v1/cart` and
+`/api/v1/checkout` reads on primary. The demonstration prepares and replicates
+the cart **before** pausing replay, then checks current cart and checkout subtotals
+and the matching placed-order total after the price change. It passed after the
+fix. Both independent second review passes reported no remaining actionable
+findings. This does not remove the possibility of bugs outside the exercised cases.
+
+After the review fix, all 94 Laravel tests (442 assertions), the module guard,
+and the expanded real-lag demonstration passed. The reviewed source also built
+offline as `11994b18aadfd3bd7513d9d9bfd12bdb1d9babbca66eee5a0845eedc3f15df10`.
+Earlier load artifacts remain historical measurements; the fix only changes cart
+and checkout quotation routing, which were not benchmarked endpoints.
