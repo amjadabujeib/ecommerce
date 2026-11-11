@@ -42,7 +42,7 @@ class Category extends Model
      */
     public static function uniqueSlugFor(string $name, ?int $ignoreId = null): string
     {
-        $base = Str::slug($name) ?: 'category';
+        $base = Str::substr(Str::slug($name) ?: 'category', 0, 120);
         $slug = $base;
         $suffix = 2;
 
@@ -50,7 +50,8 @@ class Category extends Model
             ->where('slug', $slug)
             ->when($ignoreId !== null, fn ($query) => $query->whereKeyNot($ignoreId))
             ->exists()) {
-            $slug = "{$base}-{$suffix}";
+            $ending = "-{$suffix}";
+            $slug = Str::substr($base, 0, 120 - strlen($ending)).$ending;
             $suffix++;
         }
 
