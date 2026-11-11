@@ -14,7 +14,7 @@ final class UserDirectory
 {
     public const string NOTIFIABLE_TYPE = 'user';
 
-    /** @return array<int, array<string, mixed>> Profiles keyed by user ID. */
+    /** Last committed WAL position acknowledged to this user. */
     public function readFence(int $id): ?string
     {
         return User::query()->whereKey($id)->value('read_fence');
@@ -27,6 +27,7 @@ final class UserDirectory
         );
     }
 
+    /** @return array<int, array<string, mixed>> Profiles keyed by user ID. */
     public function profiles(array $ids): array
     {
         return User::on(app(ReadRouter::class)->connection())->whereIn('id', array_unique($ids))->get()

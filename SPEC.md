@@ -255,7 +255,7 @@ The **technical requirements 1–2 gate is satisfied** under the user's agreed s
 
 The user advanced to this milestone after the requirements 1–2 technical gate passed. Implementation and evidence are tracked in [the performance record](docs/performance/README.md). Preserve JWT/ownership protections, inventory authority, reservation atomicity, and bounded failure handling throughout optimization.
 
-| ID | Course obligation | Future acceptance evidence | Source |
+| ID | Course obligation | Acceptance evidence | Source |
 | --- | --- | --- | --- |
 | R3-01 | Measure, change one thing, measure again | Comparable baseline/after runs with explanations; unsupported speed claims do not count | R3 slides 3–4 |
 | R3-02 | Realistic database scale and query optimization | Hundreds of thousands of synthetic orders, recorded `EXPLAIN` plans, justified indexes/query changes, identified and fixed N+1 queries | R3 slide 6 |
@@ -265,17 +265,18 @@ The user advanced to this milestone after the requirements 1–2 technical gate 
 | R3-06 | HTTP conditional caching | Product response has ETag; matching conditional request returns bodyless 304; mutation changes data/ETag | R3 slide 9 |
 | R3-07 | Reproducible load testing | Same k6/equivalent workload before/after; report p50, p95, p99 and requests/second; explain observed behavior | R3 slides 10–11 |
 
-Future implementation decisions to make from measured evidence:
+Implemented decisions and evidence:
 
-- Select slow endpoints, datasets, concurrency, duration, warmup, and comparable cache conditions. Record hardware/runtime settings, query counts, failures, and latency units. The course gives no numeric latency or throughput threshold.
-- Choose indexes from query plans and explain write/storage costs. Keep correctness checks alongside performance measurements.
-- Route consistency-sensitive reads to the primary or use another demonstrated read-your-writes mechanism. Define its scope across separate HTTP requests; same-request connection stickiness alone may not satisfy the demonstration.
-- Define Redis keys with all relevant pagination/filter/authorization dimensions. Invalidate after committed mutations. Prevent an old replica read from refilling a just-invalidated cache with stale data.
-- Keep the inventory service authoritative for reservation decisions. Cached availability never replaces atomic `Reserve`; separate cacheable catalog fields from changing stock as needed.
-- ETags must describe the actual selected representation, including stock if stock is included. Use `If-None-Match` for conditional requests. Keep private order/notification data out of shared public caches.
-- A bodyless 304 is a valid protocol response, not an error requiring the JSON error envelope.
+- [Performance record](docs/performance/README.md) contains the 200,000-order / 600,000-line dataset, baseline plans, cumulative one-index-at-a-time plans, before/after p50/p95/p99/RPS, and a controlled replica-then-cache comparison. All recorded requests returned 200. Local shared-host timing limitations are explicit.
+- Three measured indexes cover order-item lookup, newest orders, and customer/newest orders. The existing batched presentation already keeps one and eight orders at five SQL queries; no new N+1 fix is claimed.
+- [Performance Compose overlay](docker-compose.performance.yml) adds a physical PostgreSQL standby with automatic WAL streaming, a SELECT-only reader, and Redis. It supports an existing primary volume. It is optional; plain Compose remains the requirements 1–2 deployment.
+- Eligible GET reads use a request-scoped infrastructure router. Authentication, authorization, route binding, writes, CLI jobs and checkout decisions stay primary. A monotonic per-user committed WAL fence is saved before successful business-write responses; later requests fall back to primary until replay catches up. This covers the caller's writes across requests; it does not impose global strong consistency on all order readers.
+- Product/category triggers advance a primary catalog version atomically with catalog writes. Versioned Redis keys include pagination/filter/detail dimensions, expire after 60 seconds by default, and make old in-flight fills unreachable. Cache misses use the standby only when its catalog version is current. Redis outages bypass caching.
+- Cache only catalog facts. Fetch stock live through gRPC and preserve atomic reservation authority. No private order, notification or authentication data enters the shared catalog cache.
+- Product ETags describe complete JSON including stock/related products. Matching `If-None-Match` returns an empty 304; changing catalog or stock produces 200 and a new tag. These responses are private and require revalidation. A bodyless 304 is a valid protocol response rather than a JSON error.
+- [Consistency demonstration](docs/performance/verify-consistency.mjs) pauses real replay, verifies immediate product/new-customer/new-order visibility and stock-sensitive ETags, resumes replay in `finally`, and proves return to replica reads. Guards pin it to disposable `novacart-perf` containers/data. [Postman conditional checks](docs/api/NovaCart-performance.postman_collection.json) supplement the existing collections; existing endpoint contracts and race script remain compatible.
 
-Requirement 3 is in progress. Use disposable data for baseline/after measurements, and leave the live requirements 1–2 deployment untouched until the new consistency and caching gates pass. Download authorization for the Redis image and Predis client is capped at 30 MiB.
+Requirement 3 technical acceptance is recorded in the performance report. The live requirements 1–2 deployment has not been replaced. Existing dependency-audit Symfony advisories remain a separate maintenance item; exploitability was not assessed here. The 30 MiB download authorization was respected; later builds used cached layers offline.
 
 ## 7. Scope and team workflow
 

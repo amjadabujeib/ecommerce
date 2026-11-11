@@ -1,0 +1,24 @@
+{
+  "info": {
+    "name": "NovaCart: requirement 3 conditional product reads",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": "Requires the performance Compose overlay. Select an existing productId and run both requests in order while the catalog and inventory stay unchanged. Product or stock mutations change the ETag; verify-consistency.mjs exercises that case under real replica lag."
+  },
+  "variable": [
+    {"key": "baseUrl", "value": "http://localhost:8080/api/v1"},
+    {"key": "productId", "value": "1"},
+    {"key": "productEtag", "value": ""}
+  ],
+  "item": [
+    {
+      "name": "Fetch product and retain ETag",
+      "request": {"method": "GET", "header": [{"key": "Accept", "value": "application/json"}], "url": "{{baseUrl}}/products/{{productId}}"},
+      "event": [{"listen": "test", "script": {"type": "text/javascript", "exec": ["pm.test('Full representation', () => pm.response.to.have.status(200));", "pm.test('ETag supplied', () => pm.expect(pm.response.headers.get('ETag')).to.be.a('string'));", "pm.collectionVariables.set('productEtag', pm.response.headers.get('ETag'));"]}}]
+    },
+    {
+      "name": "Unchanged product returns empty 304",
+      "request": {"method": "GET", "header": [{"key": "Accept", "value": "application/json"}, {"key": "If-None-Match", "value": "{{productEtag}}"}], "url": "{{baseUrl}}/products/{{productId}}"},
+      "event": [{"listen": "test", "script": {"type": "text/javascript", "exec": ["pm.test('Not modified', () => pm.response.to.have.status(304));", "pm.test('No response body', () => pm.expect(pm.response.text()).to.equal(''));"]}}]
+    }
+  ]
+}
