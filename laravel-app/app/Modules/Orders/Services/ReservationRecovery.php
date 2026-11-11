@@ -35,26 +35,31 @@ final class ReservationRecovery
     }
 
     /** Also checks the order after an ambiguous database commit response. */
-    public function release(string $id): bool
+    public function release(string $id, bool $remoteMayHaveCommitted = true): bool
     {
         try {
-            return DB::transaction(function () use ($id): bool {
+            return DB::transaction(function () use ($id, $remoteMayHaveCommitted): bool {
                 $intent = DB::table('checkout_reservations')->where('id', $id)->lockForUpdate()->first();
                 if ($intent === null || $intent->state !== 'pending') {
                     return false;
                 }
                 if (Order::query()->where('inventory_reservation_id', $id)->exists()) {
                     $this->committed($id);
+
                     return false;
                 }
-                $this->inventory->release($id);
+                if ($remoteMayHaveCommitted) {
+                    $this->inventory->release($id);
+                }
                 DB::table('checkout_reservations')->where('id', $id)->update(['state' => 'released', 'updated_at' => now()]);
+
                 return true;
             });
         } catch (Throwable $exception) {
             Log::error('Reservation recovery pending; retry with orders:recover-reservations', [
                 'reservation_id' => $id, 'error' => $exception->getMessage(),
             ]);
+
             return false;
         }
     }
@@ -70,6 +75,7 @@ final class ReservationRecovery
                     $recovered += (int) $this->release($intent->id);
                 }
             });
+
         return $recovered;
     }
 }
