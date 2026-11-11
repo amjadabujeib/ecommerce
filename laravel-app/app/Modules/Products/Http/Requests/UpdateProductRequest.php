@@ -2,8 +2,13 @@
 
 namespace App\Modules\Products\Http\Requests;
 
-/**
- * The edit form uses the same rules as the create form. A missing image keeps
- * the current image, so the field is nullable in both cases.
- */
-final class UpdateProductRequest extends StoreProductRequest {}
+/** Metadata edits preserve warehouse stock unless an adjustment is explicit. */
+final class UpdateProductRequest extends StoreProductRequest
+{
+    public function rules(): array
+    {
+        return array_replace(parent::rules(), [
+            'stock_quantity' => ['sometimes', 'integer', 'min:0', 'max:1000000'],
+        ]);
+    }
+}

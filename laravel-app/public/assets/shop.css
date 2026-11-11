@@ -10,3 +10,5 @@ dialog{color:var(--ink);background:var(--surface);border:1px solid #4b6957;borde
 @media(max-width:760px){.site-header{position:static;align-items:start;flex-direction:column;padding:18px;gap:14px}nav{gap:2px}nav button{padding:8px;font-size:14px}main{padding:20px 16px 60px}.intro{padding-top:0}.product-layout,.cart-layout,.category-layout{grid-template-columns:1fr;gap:24px}.detail-image{height:300px}.product-layout{margin-bottom:24px}.order-summary{position:static}.cart-line{grid-template-columns:65px minmax(0,1fr)}.cart-line img,.cart-line .placeholder{width:65px;height:65px}.cart-line strong{grid-column:2}.toast{bottom:16px;right:16px}.section-heading{align-items:start}.toolbar button{flex:1}.loading{position:static}.form-columns{grid-template-columns:1fr;gap:0}}
 
 @media(max-width:760px){.placeholder.detail-image{height:160px}.cart-line .placeholder .hint{display:none}}
+
+#adjust-stock-control input { width: auto; margin-right: .5rem; }

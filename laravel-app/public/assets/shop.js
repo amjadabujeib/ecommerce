@@ -308,6 +308,10 @@ async function productEditor(id = null) {
     const {data} = await api(id ? `/admin/products/${id}/edit` : '/admin/products/create');
     const form = $('#product-form'); form.reset(); form.querySelector('[data-errors]').hidden = true;
     categoryOptions(form.elements.category_id, data.categories);
+    $('#adjust-stock-control').hidden = !id;
+    $('#adjust-stock').checked = false;
+    form.elements.stock_quantity.disabled = !!id;
+    form.elements.stock_quantity.required = !id;
     if (id) {
         for (const field of ['id', 'title', 'description', 'price', 'stock_quantity']) form.elements[field].value = data.product[field] ?? '';
         form.elements.category_id.value = data.product.category.id;
@@ -374,6 +378,11 @@ submit('#category-form', async form => {
     const id = form.elements.id.value;
     await api(`/admin/categories${id ? `/${id}` : ''}`, {method: id ? 'PUT' : 'POST', body: {name: form.elements.name.value}});
     form.reset(); await categories(); notice('Category saved.');
+});
+$('#adjust-stock').addEventListener('change', event => {
+    const input = $('#product-form').elements.stock_quantity;
+    input.disabled = !event.target.checked;
+    input.required = event.target.checked;
 });
 submit('#product-form', async form => {
     const data = new FormData(form); const id = data.get('id'); data.delete('id');
