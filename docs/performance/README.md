@@ -263,3 +263,13 @@ and actual browser stock-edit and cross-origin ETag checks. Use
 with ADMIN_PASSWORD set only against the seeded disposable stack. The separate
 browser harness is [follow-up-browser.mjs](../demo/follow-up-browser.mjs).
 The existing load tables remain historical measurements of their frozen images.
+
+## Continued session and administration hardening
+
+[Continued verification](../verification/2026-11-11-session-admin-hardening.md)
+records concurrent category allocation, image lifecycle cleanup, typed authentication
+validation, canonical administrator identities and browser session isolation. Run
+`node --test tests/browser/api-client.test.mjs` for the dependency-free client tests.
+The guarded runtime harness is `docs/performance/verify-session-admin-fixes.mjs`;
+real expired-JWT/browser coverage is `docs/demo/session-browser.mjs`. These are
+correctness checks, not revised performance measurements.

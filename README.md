@@ -8,6 +8,8 @@ Coursework project for **Internet Applications (2026)** at Damascus University.
 
 > **Follow-up remediation:** all six additional findings are fixed and verified with 109 Laravel tests (535 assertions), real concurrency/restart checks and an actual browser. See the [follow-up evidence](docs/verification/2026-11-11-follow-up-review.md). The earlier five fixes remain in place.
 
+> **Continued hardening:** five further session/administration issues are fixed, with 121 Laravel tests, six client tests and real browser/concurrency verification. See the [continued verification record](docs/verification/2026-11-11-session-admin-hardening.md).
+
 This project targets a distributed, polyglot e-commerce platform for **Requirement 1 (API Design & Security)** and **Requirement 2 (Inter-Service Communication & Inventory Safety)**.
 
 ---

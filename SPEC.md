@@ -13,7 +13,7 @@ Source presentations, converted slide by slide into English:
 
 The presentations govern course obligations. This file governs the repository's chosen implementation of those obligations. README descriptions, collection assertions, comments, and example scripts are supporting evidence, not proof of correctness. When they disagree, reconcile them explicitly rather than silently changing the course scope.
 
-**Current priority:** the [six follow-up findings](docs/verification/2026-11-11-follow-up-review.md) are corrected and locally regression-verified, alongside the [earlier five fixes](docs/verification/2026-11-11-deep-review.md). Preserve requirements 1–3 evidence and obtain shared review before merging `feat/requirement-3-performance`. Requirements 4–6 remain roadmap context only.
+**Current priority:** requirements 1–3 review hardening is locally verified, including the [continued session/administration fixes](docs/verification/2026-11-11-session-admin-hardening.md), [six follow-up fixes](docs/verification/2026-11-11-follow-up-review.md) and [earlier five fixes](docs/verification/2026-11-11-deep-review.md). Preserve the evidence and obtain shared review before merging `feat/requirement-3-performance`. Requirements 4–6 remain roadmap context only.
 
 ## 2. Course requirements and acceptance criteria
 
@@ -133,6 +133,14 @@ Product creation requires initial stock. Product updates accept an optional `sto
 Registration requires confirmed passwords of at least eight characters, rejects NUL characters, and limits bcrypt inputs to 72 UTF-8 bytes before hashing. These validation failures return 422 field errors, not server errors.
 
 Catalog defaults bootstrap once through a transactional `bootstrap_state` ledger. On upgrade, any existing users/categories/products mark catalog bootstrap complete, preserving managed edits and intentionally empty catalogs. Fresh installations initialize defaults and mark completion in one transaction. Subsequent full or individual catalog seed runs skip completed bootstrap; administrator credential synchronization remains separate. Preserve the ledger in backups and do not reset it to repair a managed catalog. Nginx discovers the container runtime's DNS and re-resolves the PHP backend (five-second DNS cache), allowing recovery after app restarts/IP changes on Docker or Podman.
+
+Category creation and rename allocate names/slugs inside a Products-owned transaction and a PostgreSQL transaction-level advisory lock for the whole namespace. Name uniqueness is rechecked after acquiring that lock; the database unique constraints remain authoritative. SQLite behavior tests do not establish concurrent PostgreSQL correctness.
+
+Product image replacement and deletion read the current image path while holding the product row lock. Post-commit cleanup removes that captured superseded file rather than a stale route-bound path.
+
+Authentication rate limits normalize only string email values; malformed types reach normal field validation. Administrator bootstrap trims/lowercases configured email, finds canonical legacy identities without duplicating usernames, and can retain the configured administrator's ID when its address changes. Ambiguous legacy case variants are refused rather than silently merged/promoted; resolve ownership explicitly before retrying bootstrap.
+
+The GUI API client shares one refresh per current token, preserves credentials on transient refresh/startup outages, and rejects responses from an earlier login. Explicit sign-out/account changes clear private views; delayed responses cannot replay mutations under another account or repopulate its private panels. Token rotation stays within the same session. This coordination is per GUI client; server blacklist grace remains unchanged.
 
 ### Response and security contract
 

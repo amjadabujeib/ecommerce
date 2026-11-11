@@ -101,7 +101,7 @@
                 "register"
               ]
             },
-            "description": "Creates a customer account and returns a JWT.\n\nPasswords need at least 8 characters, may not contain NUL, and under bcrypt may not exceed 72 UTF-8 bytes. Unsupported values return 422 with errors.password.",
+            "description": "Creates a customer account and returns a JWT.\n\nPasswords need at least 8 characters, may not contain NUL, and under bcrypt may not exceed 72 UTF-8 bytes. Unsupported values return 422 with errors.password.\n\nEmail values must be strings; malformed JSON types return 422 rather than failing in the rate limiter. Configured administrator email is trimmed and lowercased before seeding and login.",
             "auth": {
               "type": "noauth"
             },
@@ -162,7 +162,7 @@
                 "login"
               ]
             },
-            "description": "Returns a JWT valid for `expires_in` seconds (60 minutes by default).",
+            "description": "Returns a JWT valid for `expires_in` seconds (60 minutes by default).\n\nEmail values must be strings; malformed JSON types return 422 rather than failing in the rate limiter. Configured administrator email is trimmed and lowercased before seeding and login.",
             "auth": {
               "type": "noauth"
             },
@@ -264,7 +264,7 @@
                 "login"
               ]
             },
-            "description": "Set the `adminPassword` collection variable first (ADMIN_PASSWORD, or the password printed by the seeder).",
+            "description": "Set the `adminPassword` collection variable first (ADMIN_PASSWORD, or the password printed by the seeder).\n\nEmail values must be strings; malformed JSON types return 422 rather than failing in the rate limiter. Configured administrator email is trimmed and lowercased before seeding and login.",
             "auth": {
               "type": "noauth"
             },
@@ -1312,7 +1312,7 @@
                 "categories"
               ]
             },
-            "description": "Adds a category. It appears straight away in the product form's dropdown (GET /admin/products/create). Duplicate names → 422.\n\nCategory names accept up to 100 Unicode characters; generated slugs are bounded to 120 characters including collision suffixes.",
+            "description": "Adds a category. It appears straight away in the product form's dropdown (GET /admin/products/create). Duplicate names → 422.\n\nCategory names accept up to 100 Unicode characters; generated slugs are bounded to 120 characters including collision suffixes.\n\nConcurrent name/slug allocation is serialized in PostgreSQL. Distinct names with the same base slug receive distinct suffixes; duplicate names return 422, including concurrent requests.",
             "auth": {
               "type": "bearer",
               "bearer": [
@@ -1365,7 +1365,7 @@
                 "{{newCategoryId}}"
               ]
             },
-            "description": "Renames the category; its slug follows the new name.\n\nCategory names accept up to 100 Unicode characters; generated slugs are bounded to 120 characters including collision suffixes.",
+            "description": "Renames the category; its slug follows the new name.\n\nCategory names accept up to 100 Unicode characters; generated slugs are bounded to 120 characters including collision suffixes.\n\nConcurrent name/slug allocation is serialized in PostgreSQL. Distinct names with the same base slug receive distinct suffixes; duplicate names return 422, including concurrent requests.",
             "auth": {
               "type": "bearer",
               "bearer": [
@@ -1532,7 +1532,7 @@
                 "{{productId}}"
               ]
             },
-            "description": "\n\nOn update, stock_quantity is optional: omit it to preserve live warehouse stock. Sending it explicitly performs an absolute stock adjustment; metadata-only edits should omit it.",
+            "description": "\n\nOn update, stock_quantity is optional: omit it to preserve live warehouse stock. Sending it explicitly performs an absolute stock adjustment; metadata-only edits should omit it.\n\nImage replacement captures the current image under the product row lock, so overlapping replacements/deletion clean up the correct superseded file.",
             "auth": {
               "type": "bearer",
               "bearer": [
