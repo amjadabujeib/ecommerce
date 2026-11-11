@@ -13,7 +13,7 @@ Source presentations, converted slide by slide into English:
 
 The presentations govern course obligations. This file governs the repository's chosen implementation of those obligations. README descriptions, collection assertions, comments, and example scripts are supporting evidence, not proof of correctness. When they disagree, reconcile them explicitly rather than silently changing the course scope.
 
-**Current priority:** requirements 1–2 technical acceptance is established; requirement 3 is now active on `feat/requirement-3-performance`. Establish a measured baseline before optimization. Requirement 3 is documented here for subsequent work. Requirements 4–6 are roadmap context only; their detailed specifications have not been supplied.
+**Current priority:** fix the [five open findings from the deeper review](docs/verification/2026-11-11-deep-review.md). Earlier requirements 1–2 and requirement 3 acceptance demonstrations passed, but the new counterexamples expose cancellation, cart concurrency, numeric-range and stalled-cache gaps. Requirement 3 work remains on `feat/requirement-3-performance`. Requirements 4–6 remain roadmap context only.
 
 ## 2. Course requirements and acceptance criteria
 
@@ -276,7 +276,7 @@ Implemented decisions and evidence:
 - Product ETags describe complete JSON including stock/related products. Matching `If-None-Match` returns an empty 304; changing catalog or stock produces 200 and a new tag. These responses are private and require revalidation. A bodyless 304 is a valid protocol response rather than a JSON error.
 - [Consistency demonstration](docs/performance/verify-consistency.mjs) pauses real replay, verifies immediate product/new-customer/new-order visibility and stock-sensitive ETags, resumes replay in `finally`, and proves return to replica reads. Guards pin it to disposable `novacart-perf` containers/data. [Postman conditional checks](docs/api/NovaCart-performance.postman_collection.json) supplement the existing collections; existing endpoint contracts and race script remain compatible.
 
-Requirement 3 technical acceptance is recorded in the performance report. The live requirements 1–2 deployment has not been replaced. Existing dependency-audit Symfony advisories remain a separate maintenance item; exploitability was not assessed here. The 30 MiB download authorization was respected; later builds used cached layers offline.
+Initial requirement 3 checks are recorded in the performance report; full acceptance is open pending the deeper review findings. The live requirements 1–2 deployment has not been replaced. Existing dependency-audit Symfony advisories remain a separate maintenance item; exploitability was not assessed here. The 30 MiB download authorization was respected; later builds used cached layers offline.
 
 ## 7. Scope and team workflow
 

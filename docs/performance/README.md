@@ -1,7 +1,7 @@
 # Requirement 3: performance and consistency
 
 Work is on `feat/requirement-3-performance`, based on the completed requirements
-1–2 acceptance branch. Technical acceptance is locally verified; shared review and deployment remain separate.
+1–2 acceptance branch. The initial checks passed; the [deeper review](../verification/2026-11-11-deep-review.md) found open correctness and failure-handling gaps. Full acceptance remains open.
 
 The baseline tools require an isolated PostgreSQL database ending in `_perf`
 and APP_ENV=testing. Do not run them on the live shop. Historical fixtures contain

@@ -4,6 +4,8 @@ Coursework project for **Internet Applications (2026)** at Damascus University.
 
 > **Verification status (2026-11-11):** Requirements 1–2 technical acceptance passes, including the dark customer/admin GUI, source image builds, 89 Laravel tests (406 assertions), 15 real inventory tests, race/outage/compensation/recovery demonstrations and persistent-volume restart checks. Team participation is set aside by request. See [the final verification report](docs/verification/final-requirements-1-2.md) and [SPEC.md](SPEC.md). [Requirements 1–2](docs/requirements/requirements-1-2.md) and [requirement 3](docs/requirements/requirement-3.md) are converted from the presentations. Requirement 3 is implemented and locally verified on `feat/requirement-3-performance`; see the [performance and consistency evidence](docs/performance/README.md). The optional performance Compose overlay adds Redis and a PostgreSQL standby.
 
+> **Subsequent deep review:** five open correctness/failure-handling findings were reproduced after the earlier passing checks. See the [review evidence](docs/verification/2026-11-11-deep-review.md); full technical acceptance is pending those fixes.
+
 This project targets a distributed, polyglot e-commerce platform for **Requirement 1 (API Design & Security)** and **Requirement 2 (Inter-Service Communication & Inventory Safety)**.
 
 ---
