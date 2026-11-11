@@ -7,7 +7,7 @@ use App\Modules\Orders\Http\Requests\AddToCartRequest;
 use App\Modules\Orders\Http\Requests\UpdateCartRequest;
 use App\Modules\Orders\Services\CartService;
 use App\Modules\Orders\Support\CartPayload;
-use App\Modules\Products\Models\Product;
+use App\Modules\Products\PublicApi\Catalog;
 use Illuminate\Http\JsonResponse;
 
 final class CartController extends Controller
@@ -19,9 +19,11 @@ final class CartController extends Controller
 
     public function store(
         AddToCartRequest $request,
-        Product $product,
+        int $product,
+        Catalog $catalog,
         CartService $cart,
     ): JsonResponse {
+        $product = $catalog->find($product);
         $cart->add($product, $request->integer('quantity'));
 
         return response()->json([
@@ -32,9 +34,11 @@ final class CartController extends Controller
 
     public function update(
         UpdateCartRequest $request,
-        Product $product,
+        int $product,
+        Catalog $catalog,
         CartService $cart,
     ): JsonResponse {
+        $product = $catalog->find($product);
         $cart->updateQuantity($product, $request->integer('quantity'));
 
         return response()->json([
@@ -43,8 +47,9 @@ final class CartController extends Controller
         ]);
     }
 
-    public function destroy(Product $product, CartService $cart): JsonResponse
+    public function destroy(int $product, Catalog $catalog, CartService $cart): JsonResponse
     {
+        $product = $catalog->find($product);
         $cart->remove($product->id);
 
         return response()->json([

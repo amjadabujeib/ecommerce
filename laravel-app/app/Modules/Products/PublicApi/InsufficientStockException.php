@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Modules\Products\Exceptions;
+namespace App\Modules\Products\PublicApi;
 
 use RuntimeException;
 

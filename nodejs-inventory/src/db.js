@@ -18,6 +18,12 @@ const SCHEMA = `
     released_at  TIMESTAMPTZ
   );
 
+  -- Upgrade existing installations as well as creating fresh databases.
+  ALTER TABLE reservations ADD COLUMN IF NOT EXISTS shortages JSONB NOT NULL DEFAULT '[]'::jsonb;
+  ALTER TABLE reservations DROP CONSTRAINT IF EXISTS reservations_status_check;
+  ALTER TABLE reservations ADD CONSTRAINT reservations_status_check
+    CHECK (status IN ('reserved', 'rejected', 'released'));
+
   CREATE TABLE IF NOT EXISTS reservation_items (
     reservation_id  UUID NOT NULL REFERENCES reservations (id) ON DELETE CASCADE,
     product_id      BIGINT NOT NULL,
@@ -53,7 +59,14 @@ export async function migrate(pool) {
 
   try {
     await client.query('SELECT pg_advisory_lock(7317)');
-    await client.query(SCHEMA);
+    await client.query('BEGIN');
+    try {
+      await client.query(SCHEMA);
+      await client.query('COMMIT');
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    }
   } finally {
     await client.query('SELECT pg_advisory_unlock(7317)').catch(() => {});
     client.release();

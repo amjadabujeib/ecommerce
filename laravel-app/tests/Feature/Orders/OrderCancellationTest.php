@@ -122,8 +122,8 @@ final class OrderCancellationTest extends TestCase
     private function placeOrder(User $customer, Product $product, int $quantity): Order
     {
         CartItem::factory()
-            ->for(Cart::factory()->for($customer))
-            ->for($product)
+            ->for(Cart::factory()->state(['user_id' => $customer->id]))
+            ->state(['product_id' => $product->id])
             ->create(['quantity' => $quantity]);
 
         $this->actingAs($customer)

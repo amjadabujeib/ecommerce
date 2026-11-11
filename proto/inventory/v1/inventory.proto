@@ -24,7 +24,9 @@ service InventoryService {
   //
   // Not enough stock is a normal business answer (status REJECTED with the
   // shortages), not an error. The call is idempotent per reservation_id:
-  // sending the same reservation again returns the first answer.
+  // sending the same normalized items again returns the saved outcome (even
+  // a rejection after stock changes), unless Release has marked it RELEASED.
+  // Reusing an id with different items is INVALID_ARGUMENT.
   rpc Reserve(ReserveRequest) returns (ReserveResponse);
 
   // Give the units of a reservation back (failed order, cancelled order).

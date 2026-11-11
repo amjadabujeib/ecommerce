@@ -5,8 +5,8 @@ namespace App\Modules\Notifications;
 use App\Modules\ModuleServiceProvider;
 use App\Modules\Notifications\Listeners\SendOrderPlacedNotifications;
 use App\Modules\Notifications\Listeners\SendOrderStatusNotification;
-use App\Modules\Orders\Events\OrderPlaced;
-use App\Modules\Orders\Events\OrderStatusChanged;
+use App\Modules\Orders\PublicApi\Events\OrderPlaced;
+use App\Modules\Orders\PublicApi\Events\OrderStatusChanged;
 use Illuminate\Support\Facades\Event;
 
 final class NotificationsServiceProvider extends ModuleServiceProvider

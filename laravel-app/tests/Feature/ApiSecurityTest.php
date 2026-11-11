@@ -42,7 +42,7 @@ final class ApiSecurityTest extends TestCase
     public function test_customer_order_list_only_contains_their_own_orders(): void
     {
         $customer = User::factory()->create();
-        $own = Order::factory()->for($customer)->create();
+        $own = Order::factory()->state(['user_id' => $customer->id])->create();
         Order::factory()->count(2)->create();
 
         $this->withToken(JWTAuth::fromUser($customer))
@@ -55,7 +55,7 @@ final class ApiSecurityTest extends TestCase
     public function test_customer_cannot_change_an_order_status(): void
     {
         $customer = User::factory()->create();
-        $order = Order::factory()->for($customer)->create();
+        $order = Order::factory()->state(['user_id' => $customer->id])->create();
 
         $this->withToken(JWTAuth::fromUser($customer))
             ->patchJson(route('admin.orders.status', $order), ['status' => 'completed'])
@@ -210,8 +210,8 @@ final class ApiSecurityTest extends TestCase
         $customer = User::factory()->create();
         $product = Product::factory()->withStock(1)->create();
         CartItem::factory()
-            ->for(Cart::factory()->for($customer))
-            ->for($product)
+            ->for(Cart::factory()->state(['user_id' => $customer->id]))
+            ->state(['product_id' => $product->id])
             ->create(['quantity' => 1]);
         $this->inventory->setStock($product->id, 0);
 

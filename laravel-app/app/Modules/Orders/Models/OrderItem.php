@@ -2,7 +2,6 @@
 
 namespace App\Modules\Orders\Models;
 
-use App\Modules\Products\Models\Product;
 use Database\Factories\OrderItemFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\UseFactory;
@@ -18,6 +17,9 @@ class OrderItem extends Model
     /** @use HasFactory<OrderItemFactory> */
     use HasFactory;
 
+    /** Read-side catalog value; never persisted as an order_items column. */
+    public ?string $catalogTitle = null;
+
     /**
      * @return array<string, string>
      */
@@ -32,15 +34,6 @@ class OrderItem extends Model
     public function order(): BelongsTo
     {
         return $this->belongsTo(Order::class);
-    }
-
-    /**
-     * Includes products removed from the catalogue, so past orders still show
-     * what was bought.
-     */
-    public function product(): BelongsTo
-    {
-        return $this->belongsTo(Product::class)->withTrashed();
     }
 
     /**

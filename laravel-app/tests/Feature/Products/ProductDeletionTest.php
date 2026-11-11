@@ -19,7 +19,7 @@ final class ProductDeletionTest extends TestCase
     {
         $admin = User::factory()->admin()->create();
         $product = Product::factory()->create(['title' => 'Desk Lamp']);
-        OrderItem::factory()->for(Order::factory())->for($product)->create();
+        OrderItem::factory()->for(Order::factory())->state(['product_id' => $product->id])->create();
 
         $this->actingAs($admin)
             ->deleteJson(route('admin.products.destroy', $product))
@@ -36,8 +36,8 @@ final class ProductDeletionTest extends TestCase
     {
         $admin = User::factory()->admin()->create();
         $product = Product::factory()->create();
-        OrderItem::factory()->for(Order::factory()->completed())->for($product)->create();
-        OrderItem::factory()->for(Order::factory())->for($product)->create();
+        OrderItem::factory()->for(Order::factory()->completed())->state(['product_id' => $product->id])->create();
+        OrderItem::factory()->for(Order::factory())->state(['product_id' => $product->id])->create();
 
         $this->actingAs($admin)
             ->deleteJson(route('admin.products.destroy', $product))
@@ -57,8 +57,8 @@ final class ProductDeletionTest extends TestCase
             'image_path' => 'products/lamp.png',
         ]);
         $completedOrder = Order::factory()->completed()->create();
-        OrderItem::factory()->for($completedOrder)->for($product)->create();
-        OrderItem::factory()->for(Order::factory()->cancelled())->for($product)->create();
+        OrderItem::factory()->for($completedOrder)->state(['product_id' => $product->id])->create();
+        OrderItem::factory()->for(Order::factory()->cancelled())->state(['product_id' => $product->id])->create();
 
         $this->actingAs($admin)
             ->deleteJson(route('admin.products.destroy', $product))
@@ -76,7 +76,7 @@ final class ProductDeletionTest extends TestCase
             ->assertJsonCount(0, 'data');
 
         // ...but the completed order still shows what was bought.
-        $this->actingAs($completedOrder->user)
+        $this->actingAs(User::query()->findOrFail($completedOrder->user_id))
             ->getJson(route('orders.show', $completedOrder))
             ->assertOk()
             ->assertJsonPath('data.items.0.product_title', 'Desk Lamp');
@@ -98,8 +98,8 @@ final class ProductDeletionTest extends TestCase
     {
         $admin = User::factory()->admin()->create();
         $product = Product::factory()->create();
-        OrderItem::factory()->for(Order::factory()->completed())->for($product)->create();
-        $cartLine = CartItem::factory()->for($product)->create();
+        OrderItem::factory()->for(Order::factory()->completed())->state(['product_id' => $product->id])->create();
+        $cartLine = CartItem::factory()->state(['product_id' => $product->id])->create();
 
         $this->actingAs($admin)
             ->deleteJson(route('admin.products.destroy', $product))

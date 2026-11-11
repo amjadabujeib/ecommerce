@@ -4,9 +4,8 @@ import { transaction } from './db.js';
  * The business rules of the inventory, independent of gRPC.
  *
  * Every write runs in one database transaction and locks the stock rows it
- * changes (SELECT ... FOR UPDATE, always in product_id order so two requests
- * can never deadlock). That lock is what solves the race condition: when
- * several orders want the last unit at the same moment, they queue on the
+ * changes (SELECT ... FOR UPDATE in product_id order to reduce deadlock risk).
+ * When several orders want the last unit at the same moment, they queue on the
  * row, the first one takes it, and the others see 0 left.
  */
 export class Inventory {
@@ -46,33 +45,42 @@ export class Inventory {
   async reserve(reservationId, items) {
     const lines = mergeLines(items);
 
-    const outcome = await transaction(this.pool, async (client) => {
-      // Claim the reservation id. If another call already used it (a retry
-      // after a timeout, or a Release that arrived first), we answer with
-      // what that call decided instead of taking stock twice.
+    return transaction(this.pool, async (client) => {
+      // Claiming the UUID serializes concurrent reserves and releases for it.
       const claim = await client.query(
         `INSERT INTO reservations (id, status) VALUES ($1, 'reserved')
-         ON CONFLICT (id) DO NOTHING
-         RETURNING id`,
+         ON CONFLICT (id) DO NOTHING RETURNING id`,
         [reservationId],
       );
 
       if (claim.rowCount === 0) {
-        return { existing: true };
+        const { rows: [reservation] } = await client.query(
+          'SELECT status, shortages FROM reservations WHERE id = $1 FOR UPDATE',
+          [reservationId],
+        );
+        const { rows: previousItems } = await client.query(
+          'SELECT product_id, quantity FROM reservation_items WHERE reservation_id = $1 ORDER BY product_id',
+          [reservationId],
+        );
+
+        // An early release has no payload; it blocks any late reservation.
+        if (previousItems.length > 0 && (
+          previousItems.length !== lines.size ||
+          previousItems.some((item) => lines.get(Number(item.product_id)) !== item.quantity)
+        )) {
+          throw new ReservationConflict('reservation_id was already used for different items');
+        }
+
+        return { status: reservation.status.toUpperCase(), shortages: reservation.shortages };
       }
 
       const productIds = [...lines.keys()].sort((a, b) => a - b);
-
       const { rows } = await client.query(
         `SELECT product_id, quantity FROM stock
-         WHERE product_id = ANY($1::bigint[])
-         ORDER BY product_id
-         FOR UPDATE`,
+         WHERE product_id = ANY($1::bigint[]) ORDER BY product_id FOR UPDATE`,
         [productIds],
       );
-
       const available = new Map(rows.map((row) => [Number(row.product_id), row.quantity]));
-
       const shortages = productIds
         .map((productId) => ({
           product_id: productId,
@@ -81,47 +89,31 @@ export class Inventory {
         }))
         .filter((line) => line.requested > line.available);
 
+      // Keep the normalized request even on rejection, so replays cannot
+      // change the payload or silently turn a rejected attempt into a sale.
+      for (const productId of productIds) {
+        await client.query(
+          'INSERT INTO reservation_items (reservation_id, product_id, quantity) VALUES ($1, $2, $3)',
+          [reservationId, productId, lines.get(productId)],
+        );
+      }
+
       if (shortages.length > 0) {
-        // Throwing rolls back the claim as well: a rejected request leaves
-        // no trace and may be retried later with the same id.
-        throw new RejectedReservation(shortages);
+        await client.query(
+          "UPDATE reservations SET status = 'rejected', shortages = $2::jsonb WHERE id = $1",
+          [reservationId, JSON.stringify(shortages)],
+        );
+        return { status: 'REJECTED', shortages };
       }
 
       for (const productId of productIds) {
-        const quantity = lines.get(productId);
-
         await client.query(
           'UPDATE stock SET quantity = quantity - $2, updated_at = now() WHERE product_id = $1',
-          [productId, quantity],
-        );
-        await client.query(
-          'INSERT INTO reservation_items (reservation_id, product_id, quantity) VALUES ($1, $2, $3)',
-          [reservationId, productId, quantity],
+          [productId, lines.get(productId)],
         );
       }
-
-      return { existing: false };
-    }).catch((error) => {
-      if (error instanceof RejectedReservation) {
-        return { rejected: error.shortages };
-      }
-
-      throw error;
+      return { status: 'RESERVED', shortages: [] };
     });
-
-    if (outcome.rejected) {
-      return { status: 'REJECTED', shortages: outcome.rejected };
-    }
-
-    if (outcome.existing) {
-      const { rows } = await this.pool.query('SELECT status FROM reservations WHERE id = $1', [
-        reservationId,
-      ]);
-
-      return { status: rows[0]?.status === 'released' ? 'RELEASED' : 'RESERVED', shortages: [] };
-    }
-
-    return { status: 'RESERVED', shortages: [] };
   }
 
   /**
@@ -151,7 +143,14 @@ export class Inventory {
         [reservationId],
       );
 
-      if (rows[0].status === 'released') {
+      if (rows[0].status !== 'reserved') {
+        // Rejected attempts never deducted stock, so there is nothing to return.
+        if (rows[0].status === 'rejected') {
+          await client.query(
+            "UPDATE reservations SET status = 'released', shortages = '[]'::jsonb, released_at = now() WHERE id = $1",
+            [reservationId],
+          );
+        }
         return false;
       }
 
@@ -198,13 +197,7 @@ export class Inventory {
   }
 }
 
-class RejectedReservation extends Error {
-  /** @param {{product_id: number, requested: number, available: number}[]} shortages */
-  constructor(shortages) {
-    super('Not enough stock');
-    this.shortages = shortages;
-  }
-}
+export class ReservationConflict extends Error {}
 
 /**
  * Two lines for the same product count as one line with the summed quantity.

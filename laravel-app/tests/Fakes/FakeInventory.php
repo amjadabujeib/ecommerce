@@ -7,6 +7,7 @@ use App\Modules\Inventory\Data\ReservationResult;
 use App\Modules\Inventory\Data\Shortage;
 use App\Modules\Inventory\Exceptions\InventoryUnavailableException;
 use App\Modules\Products\Models\Product;
+use InvalidArgumentException;
 
 /**
  * In-memory stand-in for the inventory service, with the same rules as the
@@ -20,7 +21,7 @@ final class FakeInventory implements InventoryGateway
     /** @var array<int, int> units keyed by product id */
     private array $stock = [];
 
-    /** @var array<string, array{status: string, items: array<int, int>}> */
+    /** @var array<string, array{status: string, items: array<int, int>, shortages?: list<Shortage>}> */
     private array $reservations = [];
 
     /** @var list<string> reservation ids passed to release(), in order */
@@ -47,10 +48,20 @@ final class FakeInventory implements InventoryGateway
     {
         $this->ensureUp('Reserve');
 
+        ksort($quantities);
+
         if (isset($this->reservations[$reservationId])) {
-            return $this->reservations[$reservationId]['status'] === 'released'
-                ? ReservationResult::alreadyReleased()
-                : ReservationResult::reserved();
+            $previous = $this->reservations[$reservationId];
+
+            if ($previous['items'] !== [] && $previous['items'] !== $quantities) {
+                throw new InvalidArgumentException('reservation_id was already used for different items');
+            }
+
+            return match ($previous['status']) {
+                'released' => ReservationResult::alreadyReleased(),
+                'rejected' => ReservationResult::rejected($previous['shortages']),
+                default => ReservationResult::reserved(),
+            };
         }
 
         $shortages = [];
@@ -64,6 +75,8 @@ final class FakeInventory implements InventoryGateway
         }
 
         if ($shortages !== []) {
+            $this->reservations[$reservationId] = ['status' => 'rejected', 'items' => $quantities, 'shortages' => $shortages];
+
             return ReservationResult::rejected($shortages);
         }
 
@@ -96,7 +109,9 @@ final class FakeInventory implements InventoryGateway
             return false;
         }
 
-        if ($reservation['status'] === 'released') {
+        if ($reservation['status'] !== 'reserved') {
+            $this->reservations[$reservationId]['status'] = 'released';
+
             return false;
         }
 

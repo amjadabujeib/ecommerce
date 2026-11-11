@@ -7,18 +7,21 @@ use App\Modules\Orders\Enums\OrderStatus;
 use App\Modules\Orders\Http\Requests\UpdateOrderStatusRequest;
 use App\Modules\Orders\Http\Resources\OrderResource;
 use App\Modules\Orders\Models\Order;
+use App\Modules\Orders\Services\OrderPresentation;
 use App\Modules\Orders\Services\OrderService;
 use Illuminate\Http\JsonResponse;
 
 final class OrderController extends Controller
 {
-    public function index(): JsonResponse
+    public function index(OrderPresentation $presentation): JsonResponse
     {
         $orders = Order::query()
-            ->with(['user', 'items.product'])
+            ->with('items')
             ->withCount('items')
             ->latest()
             ->paginate(12);
+
+        $presentation->prepare($orders->getCollection());
 
         return OrderResource::collection($orders)->response();
     }
@@ -27,13 +30,15 @@ final class OrderController extends Controller
         UpdateOrderStatusRequest $request,
         Order $order,
         OrderService $orders,
+        OrderPresentation $presentation,
     ): JsonResponse {
         $newStatus = OrderStatus::from($request->validated('status'));
         $previousStatus = $order->status;
 
         $order = $orders->updateStatus($order, $newStatus);
 
-        $order->load(['items.product', 'user']);
+        $order->load('items');
+        $presentation->prepare($order);
 
         $message = match (true) {
             $previousStatus === $newStatus => "Order #{$order->id} is already {$newStatus->label()}.",

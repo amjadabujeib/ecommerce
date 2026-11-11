@@ -3,7 +3,7 @@
 namespace App\Modules\Orders\Listeners;
 
 use App\Modules\Orders\Models\CartItem;
-use App\Modules\Products\Events\ProductRemoved;
+use App\Modules\Products\PublicApi\Events\ProductRemoved;
 
 /**
  * Cart lines are not a historical record: when a product leaves the

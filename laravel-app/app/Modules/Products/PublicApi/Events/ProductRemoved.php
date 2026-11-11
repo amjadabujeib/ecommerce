@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Modules\Products\Events;
+namespace App\Modules\Products\PublicApi\Events;
 
 use Illuminate\Foundation\Events\Dispatchable;
 

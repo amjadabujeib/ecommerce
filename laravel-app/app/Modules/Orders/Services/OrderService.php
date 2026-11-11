@@ -4,9 +4,9 @@ namespace App\Modules\Orders\Services;
 
 use App\Modules\Inventory\Contracts\InventoryGateway;
 use App\Modules\Orders\Enums\OrderStatus;
-use App\Modules\Orders\Events\OrderStatusChanged;
 use App\Modules\Orders\Exceptions\InvalidOrderTransitionException;
 use App\Modules\Orders\Models\Order;
+use App\Modules\Orders\PublicApi\Events\OrderStatusChanged;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -48,7 +48,7 @@ final class OrderService
 
         // Announce only after the transaction committed and only on a real change.
         if ($previousStatus !== null) {
-            OrderStatusChanged::dispatch($updated, $previousStatus);
+            OrderStatusChanged::dispatch($updated->summary(), $previousStatus->value);
         }
 
         return $updated;

@@ -4,10 +4,10 @@ namespace App\Modules\Orders\Services;
 
 use App\Modules\Orders\Models\Cart;
 use App\Modules\Orders\Models\CartItem;
-use App\Modules\Products\Exceptions\InsufficientStockException;
-use App\Modules\Products\Models\Product;
-use App\Modules\Products\Services\ProductService;
-use App\Modules\Users\Models\User;
+use App\Modules\Products\PublicApi\Catalog;
+use App\Modules\Products\PublicApi\CatalogProduct;
+use App\Modules\Products\PublicApi\InsufficientStockException;
+use App\Modules\Users\PublicApi\Actor;
 use Illuminate\Auth\AuthenticationException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -24,7 +24,7 @@ final class CartService
 {
     public function __construct(
         private readonly Request $request,
-        private readonly ProductService $products,
+        private readonly Catalog $products,
     ) {}
 
     /**
@@ -40,7 +40,7 @@ final class CartService
     /**
      * Cart lines with fresh product data and calculated line totals.
      *
-     * @return list<array{product: Product, quantity: int, line_total: float}>
+     * @return list<array{product: CatalogProduct, quantity: int, line_total: float}>
      */
     public function items(): array
     {
@@ -50,13 +50,13 @@ final class CartService
             return [];
         }
 
-        $products = $this->products->withStock($this->products->findMany(array_keys($cart)));
+        $products = $this->products->findMany(array_keys($cart), withStock: true);
 
         $items = [];
         $changed = false;
 
         foreach ($cart as $productId => $quantity) {
-            $product = $products->get($productId);
+            $product = $products[$productId] ?? null;
 
             if ($product === null) {
                 // The product was removed from the catalogue in the meantime.
@@ -95,11 +95,11 @@ final class CartService
         return $this->raw() === [];
     }
 
-    public function add(Product $product, int $quantity): void
+    public function add(CatalogProduct $product, int $quantity): void
     {
         $cart = $this->raw();
         $desired = ($cart[$product->id] ?? 0) + $quantity;
-        $available = $this->products->availableUnits($product);
+        $available = $this->products->availableUnits($product->id);
 
         if ($desired > $available) {
             throw new InsufficientStockException($product->title, $available, $desired);
@@ -109,7 +109,7 @@ final class CartService
         $this->store($cart);
     }
 
-    public function updateQuantity(Product $product, int $quantity): void
+    public function updateQuantity(CatalogProduct $product, int $quantity): void
     {
         $cart = $this->raw();
 
@@ -120,7 +120,7 @@ final class CartService
             return;
         }
 
-        $available = $this->products->availableUnits($product);
+        $available = $this->products->availableUnits($product->id);
 
         if ($quantity > $available) {
             throw new InsufficientStockException($product->title, $available, $quantity);
@@ -142,18 +142,18 @@ final class CartService
         $user = $this->owner();
 
         CartItem::query()
-            ->whereHas('cart', fn ($query) => $query->where('user_id', $user->id))
+            ->whereHas('cart', fn ($query) => $query->where('user_id', (int) $user->getAuthIdentifier()))
             ->delete();
     }
 
     /**
      * The cart routes require authentication, so a missing user is a 401.
      */
-    private function owner(): User
+    private function owner(): Actor
     {
         $user = $this->request->user();
 
-        if (! $user instanceof User) {
+        if (! $user instanceof Actor) {
             throw new AuthenticationException;
         }
 
@@ -177,11 +177,11 @@ final class CartService
     /**
      * @return array<int, int>
      */
-    private function readDatabase(User $user): array
+    private function readDatabase(Actor $user): array
     {
         return $this->normalize(
             CartItem::query()
-                ->whereHas('cart', fn ($query) => $query->where('user_id', $user->id))
+                ->whereHas('cart', fn ($query) => $query->where('user_id', (int) $user->getAuthIdentifier()))
                 ->pluck('quantity', 'product_id')
                 ->all(),
         );
@@ -192,10 +192,10 @@ final class CartService
      *
      * @param  array<int, int>  $cart
      */
-    private function writeDatabase(User $user, array $cart): void
+    private function writeDatabase(Actor $user, array $cart): void
     {
         DB::transaction(function () use ($user, $cart): void {
-            $storedCart = Cart::query()->firstOrCreate(['user_id' => $user->id]);
+            $storedCart = Cart::query()->firstOrCreate(['user_id' => (int) $user->getAuthIdentifier()]);
 
             $storedCart->items()
                 ->whereNotIn('product_id', array_keys($cart))

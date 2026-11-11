@@ -26,8 +26,8 @@ final class NotificationTest extends TestCase
         $customer = User::factory()->create();
         $product = Product::factory()->withStock(5)->create();
         CartItem::factory()
-            ->for(Cart::factory()->for($customer))
-            ->for($product)
+            ->for(Cart::factory()->state(['user_id' => $customer->id]))
+            ->state(['product_id' => $product->id])
             ->create(['quantity' => 1]);
 
         $this->actingAs($customer, 'api')
@@ -53,7 +53,7 @@ final class NotificationTest extends TestCase
             ->patchJson(route('admin.orders.status', $order), ['status' => 'completed'])
             ->assertOk();
 
-        $notifications = $order->user->notifications;
+        $notifications = User::query()->findOrFail($order->user_id)->notifications;
 
         $this->assertCount(1, $notifications);
         $this->assertSame(OrderStatusChanged::class, $notifications->first()->type);
@@ -66,8 +66,8 @@ final class NotificationTest extends TestCase
         $customer = User::factory()->create();
         $other = User::factory()->create();
 
-        $customer->notify(new OrderPlaced(Order::factory()->for($customer)->create()));
-        $other->notify(new OrderPlaced(Order::factory()->for($other)->create()));
+        $customer->notify(new OrderPlaced(Order::factory()->state(['user_id' => $customer->id])->create()->summary()));
+        $other->notify(new OrderPlaced(Order::factory()->state(['user_id' => $other->id])->create()->summary()));
 
         $this->actingAs($customer, 'api')
             ->getJson(route('notifications.index'))
@@ -80,7 +80,7 @@ final class NotificationTest extends TestCase
     public function test_users_cannot_mark_someone_elses_notification(): void
     {
         $owner = User::factory()->create();
-        $owner->notify(new OrderPlaced(Order::factory()->for($owner)->create()));
+        $owner->notify(new OrderPlaced(Order::factory()->state(['user_id' => $owner->id])->create()->summary()));
         $notification = $owner->notifications()->firstOrFail();
 
         $this->actingAs(User::factory()->create(), 'api')
@@ -93,8 +93,8 @@ final class NotificationTest extends TestCase
     public function test_users_can_mark_notifications_as_read(): void
     {
         $customer = User::factory()->create();
-        $customer->notify(new OrderPlaced(Order::factory()->for($customer)->create()));
-        $customer->notify(new OrderPlaced(Order::factory()->for($customer)->create()));
+        $customer->notify(new OrderPlaced(Order::factory()->state(['user_id' => $customer->id])->create()->summary()));
+        $customer->notify(new OrderPlaced(Order::factory()->state(['user_id' => $customer->id])->create()->summary()));
         $first = $customer->notifications()->firstOrFail();
 
         $this->actingAs($customer, 'api')

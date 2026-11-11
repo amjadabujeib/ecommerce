@@ -62,13 +62,13 @@ final class AdminAccessTest extends TestCase
         Product::factory()->withStock(10)->create();
         Product::factory()->withStock(0)->create();
 
-        Order::factory()->for($customer)->completed()->create(['total_amount' => '100.50']);
-        Order::factory()->for($customer)->completed()->create(['total_amount' => '50.00']);
-        Order::factory()->for($customer)->create([
+        Order::factory()->state(['user_id' => $customer->id])->completed()->create(['total_amount' => '100.50']);
+        Order::factory()->state(['user_id' => $customer->id])->completed()->create(['total_amount' => '50.00']);
+        Order::factory()->state(['user_id' => $customer->id])->create([
             'total_amount' => '999.99',
             'status' => OrderStatus::Pending,
         ]);
-        Order::factory()->for($customer)->cancelled()->create(['total_amount' => '25.00']);
+        Order::factory()->state(['user_id' => $customer->id])->cancelled()->create(['total_amount' => '25.00']);
 
         $this->actingAs($admin)
             ->getJson(route('admin.dashboard'))
@@ -83,7 +83,7 @@ final class AdminAccessTest extends TestCase
     {
         $owner = User::factory()->create();
         $otherCustomer = User::factory()->create();
-        $order = Order::factory()->for($owner)->create();
+        $order = Order::factory()->state(['user_id' => $owner->id])->create();
 
         $this->actingAs($otherCustomer)
             ->getJson(route('orders.show', $order))

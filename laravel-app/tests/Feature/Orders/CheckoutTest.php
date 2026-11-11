@@ -113,8 +113,8 @@ final class CheckoutTest extends TestCase
         $customer = User::factory()->create();
         $otherCustomer = User::factory()->create();
 
-        $ownOrder = Order::factory()->for($customer)->create();
-        Order::factory()->for($otherCustomer)->create();
+        $ownOrder = Order::factory()->state(['user_id' => $customer->id])->create();
+        Order::factory()->state(['user_id' => $otherCustomer->id])->create();
 
         $this->actingAs($customer)
             ->getJson(route('orders.index'))

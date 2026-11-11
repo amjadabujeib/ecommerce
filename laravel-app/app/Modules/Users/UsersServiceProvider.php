@@ -5,6 +5,7 @@ namespace App\Modules\Users;
 use App\Modules\ModuleServiceProvider;
 use App\Modules\Users\Http\Middleware\EnsureUserIsAdmin;
 use App\Modules\Users\Models\User;
+use App\Modules\Users\PublicApi\UserDirectory;
 use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Routing\Router;
 
@@ -16,7 +17,7 @@ final class UsersServiceProvider extends ModuleServiceProvider
         // stable alias instead of the class name, so moving the model never
         // orphans existing rows.
         Relation::morphMap([
-            'user' => User::class,
+            UserDirectory::NOTIFIABLE_TYPE => User::class,
         ]);
 
         $router->aliasMiddleware('admin', EnsureUserIsAdmin::class);

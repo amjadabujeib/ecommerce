@@ -2,7 +2,9 @@
 
 Coursework project for **Internet Applications (2026)** at Damascus University.
 
-This project delivers a distributed, polyglot e-commerce platform meeting all specifications for **Requirement 1 (API Design & Security)** and **Requirement 2 (Inter-Service Communication & Inventory Safety)**.
+> **Verification status (2026-11-11):** Requirements 1–2 technical acceptance passes, including the dark customer/admin GUI, source image builds, 89 Laravel tests (406 assertions), 15 real inventory tests, race/outage/compensation/recovery demonstrations and persistent-volume restart checks. Team participation is set aside by request. See [the final verification report](docs/verification/final-requirements-1-2.md) and [SPEC.md](SPEC.md). [Requirements 1–2](docs/requirements/requirements-1-2.md) and [requirement 3](docs/requirements/requirement-3.md) are converted from the presentations. Requirement 3 remains deferred.
+
+This project targets a distributed, polyglot e-commerce platform for **Requirement 1 (API Design & Security)** and **Requirement 2 (Inter-Service Communication & Inventory Safety)**.
 
 ---
 
@@ -29,10 +31,12 @@ Clients (Web / Mobile / QA) ───────────────► Ngi
                                                          (PostgreSQL)
 ```
 
+The Laravel core is a modular monolith with module-owned models and queries, public catalog/user interfaces, and immutable order events. Inventory is the separate gRPC application required by requirement 2. See [module ownership and dependency rules](SPEC.md#module-ownership-and-public-interfaces).
+
 ### Key Technical Pillars
 
-1. **Modular Core API Backend (Laravel 11/12, PHP 8.5)**:
-   - Partitioned into 4 strictly decoupled domain modules under `laravel-app/app/Modules/`: `Users`, `Products`, `Orders`, and `Notifications`.
+1. **Modular Core API Backend (Laravel 13, PHP 8.5)**:
+   - Partitioned into 4 domain modules under `laravel-app/app/Modules/`: `Users`, `Products`, `Orders`, and `Notifications`.
    - Versioned REST APIs (`/api/v1/`) with unified JSON error envelopes: `{ "status": ..., "code": "...", "message": "...", "errors": {...} }`.
    - Stateless JWT authentication via `php-open-source-saver/jwt-auth` with refresh tokens and revocation blacklisting.
    - Role-Based Access Control (`customer` vs `admin`) and login rate limiting (6 requests/minute per account/IP).
@@ -43,7 +47,7 @@ Clients (Web / Mobile / QA) ───────────────► Ngi
    - Standalone polyglot microservice running on port `50051`, backed by its own isolated PostgreSQL database.
    - Shared Protocol Buffers contract (`proto/inventory/v1/inventory.proto`) defining `GetStock`, `Reserve`, `Release`, and `SetStock`.
    - Concurrency safety: atomic row-level transactional locking (`SELECT ... FOR UPDATE` ordered by `product_id`) and database constraints (`CHECK (quantity >= 0)`), preventing deadlocks and race conditions.
-   - Two-phase checkout orchestration: orders execute an atomic all-or-nothing stock reservation prior to order persistence, executing a compensating release rollback if database persistence fails.
+   - Reservation and compensation checkout: orders execute an atomic all-or-nothing stock reservation prior to order persistence, executing a compensating release rollback if database persistence fails.
    - Fault tolerance: strict 2000ms gRPC client deadlines returning structured `503 Service Unavailable` with `Retry-After: 5` headers when the inventory service is stopped or degraded.
 
 ---
@@ -65,7 +69,7 @@ distributed-ecommerce/
 ├── docs/                 # Postman collections & concurrency verification scripts
 │   ├── api/              # NovaCart API & outage collections
 │   └── demo/             # race-condition.mjs test script
-├── docker-compose.yml    # Complete 5-container orchestration
+├── docker-compose.yml    # Complete 6-container orchestration
 └── SPEC.md               # Detailed system architectural specification
 ```
 
@@ -78,7 +82,7 @@ distributed-ecommerce/
 | **Member A** | Infrastructure, Docker & Contracts | `feature/docker-setup` | Multi-container Docker environment, base Laravel setup, and shared gRPC contract |
 | **Member B** | Users, Authentication & Security | `feature/auth-and-roles` | User registration, JWT lifecycle, RBAC, login rate limiting, and security headers |
 | **Member C** | Products, Catalog & Categories | `feature/product-catalog` | Product & category catalog endpoints, image uploads, and concurrency race demo |
-| **Member D** | Orders, IDOR & Two-Phase Checkout | `feature/order-management` | Cart persistence, orders domain, IDOR policies, and two-phase checkout orchestration |
+| **Member D** | Orders, IDOR & Checkout | `feature/order-management` | Cart persistence, orders domain, IDOR policies, and reservation/compensation checkout orchestration |
 | **Member E** | Inventory Microservice & gRPC | `feature/inventory-service` | Node.js gRPC inventory microservice, row-level locking, and Laravel gateway |
 
 ---
@@ -89,7 +93,23 @@ distributed-ecommerce/
 ```bash
 docker compose up -d --build
 ```
-The REST API is exposed at `http://localhost:8080/api/v1` (`GET /up` serves as the health check).
+Open the customer/admin GUI at **http://localhost:8080/**. The REST API is at `http://localhost:8080/api/v1`; `GET /up` is the application health endpoint. Set `ADMIN_EMAIL` and a nonempty `ADMIN_PASSWORD` in your environment before first startup to seed the administrator. Customers register in the GUI.
+
+The GUI has dedicated product pages, named category filters, cart quantities/counts and separate administration sections. [GUI verification](docs/verification/gui-usability.md) covers Back/Forward, deep links and the actual shopping flow.
+
+The GUI uses a dark palette. After a web image update, hard-refresh the browser.
+If Podman keeps an older web container, apply the rebuilt image with
+`docker compose up -d --no-deps --no-build --force-recreate web`.
+
+The `scheduler` container retries abandoned checkout reservations every minute, after a five-minute grace period. You can also run `docker compose exec app php artisan orders:recover-reservations` manually. Keep it running for automatic recovery.
+
+The PHP gRPC extension is already compiled and bundled in the repository as a
+**6.35 MiB compressed file**. Teammates need no separate extension download or
+manual installation: the Dockerfile checks and enables it. The PHP base is pinned
+to the compatible Debian/amd64 image. App and scheduler share one core image,
+so Compose builds it once. See the [artifact notes](laravel-app/docker/php/extensions/README.md)
+for compatibility, provenance and updates. A first setup still needs ordinary
+base images and locked application dependencies when those are not cached.
 
 ### Running Automated Test Suites
 ```bash

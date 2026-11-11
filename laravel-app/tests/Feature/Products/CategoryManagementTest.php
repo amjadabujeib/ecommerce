@@ -114,7 +114,7 @@ final class CategoryManagementTest extends TestCase
         $admin = User::factory()->admin()->create();
         $category = Category::factory()->create();
         $product = Product::factory()->for($category)->create();
-        OrderItem::factory()->for(Order::factory()->completed())->for($product)->create();
+        OrderItem::factory()->for(Order::factory()->completed())->state(['product_id' => $product->id])->create();
 
         $this->actingAs($admin)->deleteJson(route('admin.products.destroy', $product))->assertOk();
 

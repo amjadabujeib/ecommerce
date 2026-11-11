@@ -2,8 +2,7 @@
 
 namespace App\Modules\Notifications\Notifications;
 
-use App\Modules\Orders\Enums\OrderStatus;
-use App\Modules\Orders\Models\Order;
+use App\Modules\Orders\PublicApi\OrderSummary;
 use Illuminate\Bus\Queueable;
 use Illuminate\Notifications\Notification;
 
@@ -15,8 +14,8 @@ final class OrderStatusChanged extends Notification
     use Queueable;
 
     public function __construct(
-        private readonly Order $order,
-        private readonly OrderStatus $previousStatus,
+        private readonly OrderSummary $order,
+        private readonly string $previousStatus,
     ) {}
 
     /**
@@ -35,9 +34,9 @@ final class OrderStatusChanged extends Notification
         return [
             'type' => 'order_status_changed',
             'order_id' => $this->order->id,
-            'previous_status' => $this->previousStatus->value,
-            'status' => $this->order->status->value,
-            'message' => "Your order #{$this->order->id} is now {$this->order->status->label()}.",
+            'previous_status' => $this->previousStatus,
+            'status' => $this->order->status,
+            'message' => "Your order #{$this->order->id} is now {$this->order->statusLabel}.",
         ];
     }
 }

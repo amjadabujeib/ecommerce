@@ -5,8 +5,8 @@ use App\Modules\Inventory\Exceptions\InventoryUnavailableException;
 use App\Modules\Orders\Exceptions\EmptyCartException;
 use App\Modules\Orders\Exceptions\InvalidOrderTransitionException;
 use App\Modules\Products\Exceptions\CategoryInUseException;
-use App\Modules\Products\Exceptions\InsufficientStockException;
-use App\Modules\Products\Exceptions\ProductHasPendingOrdersException;
+use App\Modules\Products\PublicApi\InsufficientStockException;
+use App\Modules\Products\PublicApi\ProductHasPendingOrdersException;
 use App\Support\ApiError;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
@@ -24,6 +24,7 @@ return Application::configure(basePath: dirname(__DIR__))
     // API routes are registered by each module's service provider under
     // /api/v1 (see App\Modules\ModuleServiceProvider).
     ->withRouting(
+        web: __DIR__.'/../routes/web.php',
         commands: __DIR__.'/../routes/console.php',
         health: '/up',
     )
@@ -32,9 +33,8 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->throttleApi();
     })
     ->withExceptions(function (Exceptions $exceptions): void {
-        // The project is backend-only: every response, including validation
-        // failures and unauthenticated requests, is rendered as JSON.
-        $exceptions->shouldRenderJsonWhen(fn () => true);
+        // API failures keep their JSON contract regardless of Accept headers.
+        $exceptions->shouldRenderJsonWhen(fn ($request) => $request->is('api/*') || $request->expectsJson());
 
         // Domain exceptions stay HTTP-agnostic; their status codes live here.
         $exceptions->map(
