@@ -16,7 +16,7 @@ use Illuminate\Notifications\Notifiable;
 use PHPOpenSourceSaver\JWTAuth\Contracts\JWTSubject;
 
 #[Fillable(['username', 'email', 'password'])]
-#[Hidden(['password', 'remember_token'])]
+#[Hidden(['password', 'remember_token', 'read_fence'])]
 #[UseFactory(UserFactory::class)]
 class User extends Authenticatable implements JWTSubject, Actor
 {

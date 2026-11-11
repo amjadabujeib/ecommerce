@@ -15,7 +15,7 @@ final class OrderController extends Controller
 {
     public function index(OrderPresentation $presentation): JsonResponse
     {
-        $orders = Order::query()
+        $orders = Order::on(app(\App\Support\ReadRouter::class)->connection())
             ->with('items')
             ->withCount('items')
             ->latest()

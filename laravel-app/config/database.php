@@ -99,6 +99,18 @@ return [
             'sslmode' => env('DB_SSLMODE', 'prefer'),
         ],
 
+        'replica' => [
+            'driver' => 'pgsql',
+            'host' => env('DB_READ_HOST', 'db-replica'),
+            'port' => env('DB_READ_PORT', 5432),
+            'database' => env('DB_DATABASE', 'novacart'),
+            'username' => env('DB_READ_USERNAME', 'novacart_reader'),
+            'password' => env('DB_READ_PASSWORD', 'novacart_read'),
+            'charset' => 'utf8', 'prefix' => '', 'search_path' => 'public',
+            'sslmode' => env('DB_SSLMODE', 'prefer'),
+            'options' => [\PDO::ATTR_TIMEOUT => 2],
+        ],
+
         'sqlsrv' => [
             'driver' => 'sqlsrv',
             'url' => env('DB_URL'),

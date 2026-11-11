@@ -14,7 +14,7 @@ final class OrderController extends Controller
 {
     public function index(Request $request, OrderPresentation $presentation): JsonResponse
     {
-        $orders = Order::query()
+        $orders = Order::on(app(\App\Support\ReadRouter::class)->connection())
             ->where('user_id', $request->user()->getAuthIdentifier())
             ->with('items')
             ->withCount('items')
