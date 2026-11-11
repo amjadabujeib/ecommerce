@@ -22,7 +22,9 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        RateLimiter::for('api', fn (Request $request): Limit => Limit::perMinute(60)
+        RateLimiter::for('api', fn (Request $request): Limit => app()->environment('testing') && config('performance.load_testing')
+            ? Limit::none()
+            : Limit::perMinute(60)
             ->by($request->user()?->getAuthIdentifier() ?? $request->ip()));
 
         // Sign-in endpoints: limited per account and IP so password guessing is

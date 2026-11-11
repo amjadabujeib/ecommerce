@@ -13,7 +13,7 @@ Source presentations, converted slide by slide into English:
 
 The presentations govern course obligations. This file governs the repository's chosen implementation of those obligations. README descriptions, collection assertions, comments, and example scripts are supporting evidence, not proof of correctness. When they disagree, reconcile them explicitly rather than silently changing the course scope.
 
-**Current priority:** establish and verify requirements 1 and 2 before implementing requirement 3. Requirement 3 is documented here for subsequent work. Requirements 4–6 are roadmap context only; their detailed specifications have not been supplied.
+**Current priority:** requirements 1–2 technical acceptance is established; requirement 3 is now active on `feat/requirement-3-performance`. Establish a measured baseline before optimization. Requirement 3 is documented here for subsequent work. Requirements 4–6 are roadmap context only; their detailed specifications have not been supplied.
 
 ## 2. Course requirements and acceptance criteria
 
@@ -251,9 +251,9 @@ Technical requirements 1–2 and the agreed basic GUI have passing acceptance ev
 
 The **technical requirements 1–2 gate is satisfied** under the user's agreed scope. Course participation is explicitly set aside by the user; main protection/one-review enforcement was previously verified, but per-member coverage is not being signed off. Requirement 3 remains deferred and has no work branch yet.
 
-## 6. Requirement 3 — deferred performance and caching milestone
+## 6. Requirement 3 — active performance and caching milestone
 
-Implement after the requirements 1–2 verification gate passes. Preserve JWT/ownership protections, inventory authority, reservation atomicity, and bounded failure handling throughout optimization.
+The user advanced to this milestone after the requirements 1–2 technical gate passed. Implementation and evidence are tracked in [the performance record](docs/performance/README.md). Preserve JWT/ownership protections, inventory authority, reservation atomicity, and bounded failure handling throughout optimization.
 
 | ID | Course obligation | Future acceptance evidence | Source |
 | --- | --- | --- | --- |
@@ -275,7 +275,7 @@ Future implementation decisions to make from measured evidence:
 - ETags must describe the actual selected representation, including stock if stock is included. Use `If-None-Match` for conditional requests. Keep private order/notification data out of shared public caches.
 - A bodyless 304 is a valid protocol response, not an error requiring the JSON error envelope.
 
-Redis, a read replica, synthetic bulk data, and load tests are documented future work here. This task does not install, provision, seed, or benchmark them.
+Requirement 3 is in progress. Use disposable data for baseline/after measurements, and leave the live requirements 1–2 deployment untouched until the new consistency and caching gates pass. Download authorization for the Redis image and Predis client is capped at 30 MiB.
 
 ## 7. Scope and team workflow
 
