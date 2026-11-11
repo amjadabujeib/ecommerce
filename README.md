@@ -6,7 +6,7 @@ Coursework project for **Internet Applications (2026)** at Damascus University.
 
 > **Deep-review remediation:** all five subsequently reported findings are corrected and verified with 101 Laravel tests (496 assertions) plus real concurrency, recovery and stalled-Redis demonstrations. See the [remediation evidence](docs/verification/2026-11-11-deep-review.md).
 
-> **Latest review:** six additional issues have been reproduced and remain open. See the [follow-up review](docs/verification/2026-11-11-follow-up-review.md). The earlier five fixes remain in place.
+> **Follow-up remediation:** all six additional findings are fixed and verified with 109 Laravel tests (535 assertions), real concurrency/restart checks and an actual browser. See the [follow-up evidence](docs/verification/2026-11-11-follow-up-review.md). The earlier five fixes remain in place.
 
 This project targets a distributed, polyglot e-commerce platform for **Requirement 1 (API Design & Security)** and **Requirement 2 (Inter-Service Communication & Inventory Safety)**.
 

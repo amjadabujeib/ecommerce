@@ -1,7 +1,7 @@
 # Requirement 3: performance and consistency
 
 Work is on `feat/requirement-3-performance`, based on the completed requirements
-1–2 acceptance branch. The initial checks and the [deeper-review remediation](../verification/2026-11-11-deep-review.md) are locally verified. All five earlier gaps are resolved. A [follow-up review](../verification/2026-11-11-follow-up-review.md) identified six additional open issues, including cross-origin ETags and restart seeding; acceptance remains open for those paths.
+1–2 acceptance branch. The initial checks and the [deeper-review remediation](../verification/2026-11-11-deep-review.md) are locally verified. All five earlier gaps are resolved. The [six follow-up findings](../verification/2026-11-11-follow-up-review.md), including cross-origin ETags and restart seeding, are also fixed and regression-verified.
 
 The baseline tools require an isolated PostgreSQL database ending in `_perf`
 and APP_ENV=testing. Do not run them on the live shop. Historical fixtures contain
@@ -252,3 +252,14 @@ REDIS_CACHE_TIMEOUT and REDIS_CACHE_READ_WRITE_TIMEOUT (minimum 0.05); retries
 are disabled for this optional cache. A stalled-cache probe completed with 200
 in 549.8 ms. All 101 Laravel tests (496 assertions) passed. Historical load tables
 are unchanged measurements, not new benchmarks attributed to these fixes.
+
+## Six follow-up fixes
+
+[Final evidence and recovery notes](../verification/2026-11-11-follow-up-review.md)
+record 109 tests/535 assertions, both deletion/checkout lock orders, supported
+Unicode/password cases, seed preservation on existing and fresh installations,
+and actual browser stock-edit and cross-origin ETag checks. Use
+`env DISPOSABLE_CONFIRM=novacart-perf node docs/performance/verify-follow-up-fixes.mjs`
+with ADMIN_PASSWORD set only against the seeded disposable stack. The separate
+browser harness is [follow-up-browser.mjs](../demo/follow-up-browser.mjs).
+The existing load tables remain historical measurements of their frozen images.
