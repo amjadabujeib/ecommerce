@@ -13,7 +13,7 @@ Source presentations, converted slide by slide into English:
 
 The presentations govern course obligations. This file governs the repository's chosen implementation of those obligations. README descriptions, collection assertions, comments, and example scripts are supporting evidence, not proof of correctness. When they disagree, reconcile them explicitly rather than silently changing the course scope.
 
-**Current priority:** the [five deeper-review findings](docs/verification/2026-11-11-deep-review.md) have been corrected and regression-verified on `feat/requirement-3-performance`. Preserve the requirements 1–3 acceptance evidence and obtain shared review before merging. Requirements 4–6 remain roadmap context only.
+**Current priority:** address the [six new confirmed follow-up findings](docs/verification/2026-11-11-follow-up-review.md), covering stock editing, product-deletion concurrency, validation, restart seeding and cross-origin ETags. The earlier [five deeper-review findings](docs/verification/2026-11-11-deep-review.md) remain corrected and regression-verified. Work remains on `feat/requirement-3-performance`; requirements 4–6 remain roadmap context only.
 
 ## 2. Course requirements and acceptance criteria
 

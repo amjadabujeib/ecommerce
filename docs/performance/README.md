@@ -1,7 +1,7 @@
 # Requirement 3: performance and consistency
 
 Work is on `feat/requirement-3-performance`, based on the completed requirements
-1–2 acceptance branch. The initial checks and the [deeper-review remediation](../verification/2026-11-11-deep-review.md) are locally verified. All five reported gaps are resolved; shared review/deployment remain separate.
+1–2 acceptance branch. The initial checks and the [deeper-review remediation](../verification/2026-11-11-deep-review.md) are locally verified. All five earlier gaps are resolved. A [follow-up review](../verification/2026-11-11-follow-up-review.md) identified six additional open issues, including cross-origin ETags and restart seeding; acceptance remains open for those paths.
 
 The baseline tools require an isolated PostgreSQL database ending in `_perf`
 and APP_ENV=testing. Do not run them on the live shop. Historical fixtures contain
