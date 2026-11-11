@@ -36,6 +36,22 @@ final class StorefrontTest extends TestCase
             ]);
     }
 
+    public function test_category_choices_are_public_and_independent_of_the_current_filter(): void
+    {
+        $first = Category::factory()->create(['name' => 'Audio']);
+        $second = Category::factory()->create(['name' => 'Kitchen']);
+        Product::factory()->for($first)->create();
+        Product::factory()->for($second)->create();
+
+        $this->getJson(route('home', ['category' => $first->id]))
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonCount(2, 'categories')
+            ->assertJsonPath('categories.0.name', 'Audio')
+            ->assertJsonPath('categories.1.name', 'Kitchen')
+            ->assertJsonPath('currency', 'USD');
+    }
+
     public function test_products_can_be_searched_by_title(): void
     {
         $headphones = Product::factory()->create(['title' => 'Wireless Headphones']);

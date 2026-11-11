@@ -3,7 +3,9 @@
 namespace App\Modules\Products\Http\Controllers;
 
 use App\Http\Controllers\Controller;
+use App\Modules\Products\Http\Resources\CategoryResource;
 use App\Modules\Products\Http\Resources\ProductResource;
+use App\Modules\Products\Models\Category;
 use App\Modules\Products\Models\Product;
 use App\Modules\Products\Services\ProductService;
 use Illuminate\Http\JsonResponse;
@@ -29,7 +31,10 @@ final class ProductController extends Controller
         // One gRPC call for the whole page.
         $productService->withStock($products->getCollection());
 
-        return ProductResource::collection($products)->response();
+        return ProductResource::collection($products)->additional([
+            'categories' => CategoryResource::collection(Category::query()->orderBy('name')->get())->resolve(),
+            'currency' => config('store.currency'),
+        ])->response();
     }
 
     public function show(Product $product, ProductService $productService): JsonResponse
@@ -51,6 +56,7 @@ final class ProductController extends Controller
         return response()->json([
             'data' => (new ProductResource($product))->resolve(),
             'related' => ProductResource::collection($related)->resolve(),
+            'currency' => config('store.currency'),
         ]);
     }
 }

@@ -407,7 +407,7 @@
                 }
               ]
             },
-            "description": "9 per page, newest first.",
+            "description": "9 per page, newest first. Returns all named category choices in categories and the currency alongside paginated data; category choices remain available when filtering.",
             "auth": {
               "type": "noauth"
             }
@@ -419,7 +419,11 @@
                 "type": "text/javascript",
                 "exec": [
                   "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
-                  "pm.test(\"Paginated\", () => pm.expect(pm.response.json()).to.have.property(\"meta\"));"
+                  "pm.test(\"Paginated\", () => pm.expect(pm.response.json()).to.have.property(\"meta\"));",
+                  "pm.test('Named category choices and currency', () => {",
+                  "  pm.expect(pm.response.json().categories).to.be.an('array');",
+                  "  pm.expect(pm.response.json().currency).to.be.a('string');",
+                  "});"
                 ]
               }
             }

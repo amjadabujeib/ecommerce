@@ -57,6 +57,9 @@ try {
     body: { title: `Race ${runId}`, description: 'Disposable last-unit proof', price: '1.00', category_id: categoryId, stock_quantity: 1 },
   }), 201, 'Create fixture product');
   productId = product.data.id;
+  const catalog = await expectStatus(api('GET', `/?category=${categoryId}`), 200, 'Read catalog choices');
+  assert.ok(catalog.categories.some((entry) => entry.id === categoryId), 'Named category choices include the fixture.');
+  assert.equal(typeof catalog.currency, 'string');
 
   for (let i = 0; i < buyerCount; i++) {
     const account = await expectStatus(api('POST', '/register', { body: {
