@@ -108,7 +108,7 @@ return [
             'password' => env('DB_READ_PASSWORD', 'novacart_read'),
             'charset' => 'utf8', 'prefix' => '', 'search_path' => 'public',
             'sslmode' => env('DB_SSLMODE', 'prefer'),
-            'options' => [\PDO::ATTR_TIMEOUT => 2],
+            'options' => [PDO::ATTR_TIMEOUT => 2],
         ],
 
         'sqlsrv' => [
@@ -185,7 +185,10 @@ return [
             'password' => env('REDIS_PASSWORD'),
             'port' => env('REDIS_PORT', '6379'),
             'database' => env('REDIS_CACHE_DB', '1'),
-            'max_retries' => env('REDIS_MAX_RETRIES', 3),
+            // Catalog cache is optional; bound both connection and socket reads.
+            'timeout' => max(0.05, (float) env('REDIS_CACHE_TIMEOUT', 0.5)),
+            'read_write_timeout' => max(0.05, (float) env('REDIS_CACHE_READ_WRITE_TIMEOUT', 0.5)),
+            'max_retries' => 0,
             'backoff_algorithm' => env('REDIS_BACKOFF_ALGORITHM', 'decorrelated_jitter'),
             'backoff_base' => env('REDIS_BACKOFF_BASE', 100),
             'backoff_cap' => env('REDIS_BACKOFF_CAP', 1000),
