@@ -13,7 +13,7 @@ Source presentations, converted slide by slide into English:
 
 The presentations govern course obligations. This file governs the repository's chosen implementation of those obligations. README descriptions, collection assertions, comments, and example scripts are supporting evidence, not proof of correctness. When they disagree, reconcile them explicitly rather than silently changing the course scope.
 
-**Current priority:** fix the [five open findings from the deeper review](docs/verification/2026-11-11-deep-review.md). Earlier requirements 1–2 and requirement 3 acceptance demonstrations passed, but the new counterexamples expose cancellation, cart concurrency, numeric-range and stalled-cache gaps. Requirement 3 work remains on `feat/requirement-3-performance`. Requirements 4–6 remain roadmap context only.
+**Current priority:** the [five deeper-review findings](docs/verification/2026-11-11-deep-review.md) have been corrected and regression-verified on `feat/requirement-3-performance`. Preserve the requirements 1–3 acceptance evidence and obtain shared review before merging. Requirements 4–6 remain roadmap context only.
 
 ## 2. Course requirements and acceptance criteria
 
@@ -124,9 +124,9 @@ All paths below are relative to `/api/v1`:
 
 Do not introduce `/auth/login`, move product creation to `/products`, or move admin status updates to the customer namespace solely to match the old SPEC. Any deliberate route change must update clients, documentation, and tests together.
 
-Orders are created from the customer's cart (no client-supplied order prices). Validate positive integer quantities and existing product identifiers; resolve prices and total on the server and persist order-line price snapshots. Use exact monetary arithmetic. Product creation fields follow the collection: `title`, `description`, `price`, `category_id`, `image`, and initial `stock_quantity`. The upload target is JPG/PNG/WebP, at most 5 MB, validated by actual content/MIME and size.
+Orders are created from the customer's cart (no client-supplied order prices). Validate positive integer quantities and existing product identifiers; resolve prices and total on the server and persist order-line price snapshots. Use exact monetary arithmetic. Orders may total at most 99,999,999.99, matching NUMERIC(10,2); reject larger aggregates with field error `total_amount` and HTTP 422 before Reserve. Carts/orders allow at most 100 distinct products to fit the existing single-RPC inventory limit; reject new excess lines and preexisting oversized checkout with field error `cart` and HTTP 422. Serialize cart read/modify/write operations and checkout consumption using the same persistent cart-row lock; clear purchased contents in the order transaction so concurrent additions survive and one cart revision cannot be purchased twice. Product creation fields follow the collection: `title`, `description`, `price`, `category_id`, `image`, and initial `stock_quantity`. The upload target is JPG/PNG/WebP, at most 5 MB, validated by actual content/MIME and size.
 
-Use lowercase order statuses as documented in the collection: initial `pending`; transitions `pending -> completed`, `pending -> cancelled`, `completed -> cancelled`. Cancellation returns inventory at most once. Other transitions return 422. This lifecycle is a project choice, including cancellation of completed orders; adding fulfillment/payment semantics requires an explicit design change.
+Use lowercase order statuses as documented in the collection: initial `pending`; transitions `pending -> completed`, `pending -> cancelled`, `completed -> cancelled`. Cancellation returns inventory at most once. A durable cancellation intent commits before Release; while it is pending, incompatible status requests return 409. `orders:recover-cancellations` retries these intents every minute through the existing scheduler, including after an ambiguous Release response or local persistence failure. Order status becomes cancelled and the intent completed atomically; the public status enum remains unchanged. Other invalid transitions return 422. This lifecycle is a project choice, including cancellation of completed orders; adding fulfillment/payment semantics requires an explicit design change.
 
 ### Response and security contract
 
@@ -154,7 +154,8 @@ Use the error envelope already asserted by the Postman collection and described 
 | Forbidden role or foreign existing order | 403 |
 | Missing resource | 404 |
 | Stock shortage or documented business conflict | 409 |
-| Invalid input, empty cart, invalid transition | 422 |
+| Invalid input, empty cart, invalid transition, excessive cart lines or order total | 422 |
+| Order cancellation pending recovery; incompatible status change | 409 |
 | Rate limit exceeded | 429 |
 | Unexpected local persistence failure | 500 |
 | Inventory unavailable/deadline exceeded | 503 with `Retry-After: 5` |
@@ -190,12 +191,12 @@ Choose transactional row locking (`SELECT ... FOR UPDATE`) with locks acquired i
 
 Checkout coordination is **reservation followed by local commit with compensation**, not a distributed two-phase commit protocol:
 
-1. Authenticate and validate the cart; snapshot requested items and authoritative prices.
-2. Generate a stable reservation UUID and commit a `checkout_reservations` intent before contacting inventory. Lock that intent in a new core transaction and call `Reserve` once for all items.
+1. Authenticate, generate a stable reservation UUID, and commit a `checkout_reservations` intent outside the subsequent cart/order transaction so it survives process death.
+2. In a new core transaction, lock that intent, then the customer cart row before reading it. Validate line count and aggregate monetary bounds, snapshot authoritative prices, and call `Reserve` once for all items.
 3. On `REJECTED`, return 409 with shortages and create no order. `RELEASED` must not be treated as a successful reservation.
-4. On `RESERVED`, save the order and lines in a local transaction, associate its reservation UUID, and mark the intent committed in that same transaction; return 201 after commit.
+4. On `RESERVED`, save the order and lines in a local transaction, associate its reservation UUID, mark the intent committed and clear the purchased cart in that same transaction; return 201 after commit.
 5. If saving fails, roll back the local transaction and invoke idempotent `Release` for that UUID. Verify stock restoration and return a structured local failure.
-6. Clear the cart and create notifications according to committed order state. A notification failure after commit must not release stock for an already committed order.
+6. Publish notifications only after order/cart commit. If validation fails before any Reserve attempt, finish the unused intent locally without a remote Release. A notification failure after commit must not release stock for an already committed order.
 
 Every RPC has an explicit deadline, default `INVENTORY_TIMEOUT_MS=2000`. Map unavailable/expired-deadline calls to a safe 503 response. Measure end-to-end duration, accounting for any compensation calls; a per-call deadline does not imply the entire HTTP request finishes in exactly 2000 ms.
 
@@ -272,11 +273,12 @@ Implemented decisions and evidence:
 - [Performance Compose overlay](docker-compose.performance.yml) adds a physical PostgreSQL standby with automatic WAL streaming, a SELECT-only reader, and Redis. It supports an existing primary volume. It is optional; plain Compose remains the requirements 1–2 deployment.
 - Eligible GET reads use a request-scoped infrastructure router. Authentication, authorization, route binding, writes, CLI jobs, cart/checkout quotation reads and order placement stay primary. A monotonic per-user committed WAL fence is saved before successful business-write responses; later requests fall back to primary until replay catches up. This covers the caller's writes across requests; it does not impose global strong consistency on all order readers.
 - Product/category triggers advance a primary catalog version atomically with catalog writes. Versioned Redis keys include pagination/filter/detail dimensions, expire after 60 seconds by default, and make old in-flight fills unreachable. Cache misses use the standby only when its catalog version is current. Redis outages bypass caching.
+- Redis cache-only connections default to 0.5-second connect and read/write timeouts (`REDIS_CACHE_TIMEOUT`, `REDIS_CACHE_READ_WRITE_TIMEOUT`) and zero retries. Prove fallback with a stalled server as well as a refused connection.
 - Cache only catalog facts. Fetch stock live through gRPC and preserve atomic reservation authority. No private order, notification or authentication data enters the shared catalog cache.
 - Product ETags describe complete JSON including stock/related products. Matching `If-None-Match` returns an empty 304; changing catalog or stock produces 200 and a new tag. These responses are private and require revalidation. A bodyless 304 is a valid protocol response rather than a JSON error.
 - [Consistency demonstration](docs/performance/verify-consistency.mjs) pauses real replay, verifies immediate product/new-customer/new-order visibility and stock-sensitive ETags, resumes replay in `finally`, and proves return to replica reads. Guards pin it to disposable `novacart-perf` containers/data. [Postman conditional checks](docs/api/NovaCart-performance.postman_collection.json) supplement the existing collections; existing endpoint contracts and race script remain compatible.
 
-Initial requirement 3 checks are recorded in the performance report; full acceptance is open pending the deeper review findings. The live requirements 1–2 deployment has not been replaced. Existing dependency-audit Symfony advisories remain a separate maintenance item; exploitability was not assessed here. The 30 MiB download authorization was respected; later builds used cached layers offline.
+Requirement 3 checks and the corrected deeper-review regressions are recorded in the performance report. The live requirements 1–2 deployment has not been replaced. Existing dependency-audit Symfony advisories remain a separate maintenance item; exploitability was not assessed here. The 30 MiB download authorization was respected; later builds used cached layers offline.
 
 ## 7. Scope and team workflow
 

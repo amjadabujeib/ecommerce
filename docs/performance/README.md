@@ -1,7 +1,7 @@
 # Requirement 3: performance and consistency
 
 Work is on `feat/requirement-3-performance`, based on the completed requirements
-1–2 acceptance branch. The initial checks passed; the [deeper review](../verification/2026-11-11-deep-review.md) found open correctness and failure-handling gaps. Full acceptance remains open.
+1–2 acceptance branch. The initial checks and the [deeper-review remediation](../verification/2026-11-11-deep-review.md) are locally verified. All five reported gaps are resolved; shared review/deployment remain separate.
 
 The baseline tools require an isolated PostgreSQL database ending in `_perf`
 and APP_ENV=testing. Do not run them on the live shop. Historical fixtures contain
@@ -238,3 +238,17 @@ and the expanded real-lag demonstration passed. The reviewed source also built
 offline as `11994b18aadfd3bd7513d9d9bfd12bdb1d9babbca66eee5a0845eedc3f15df10`.
 Earlier load artifacts remain historical measurements; the fix only changes cart
 and checkout quotation routing, which were not benchmarked endpoints.
+
+## Deep-review fixes
+
+See [the remediation evidence](../verification/2026-11-11-deep-review.md) for all
+five corrected findings and the 100-line RPC validation follow-up. Run
+`env DISPOSABLE_CONFIRM=novacart-perf node docs/performance/verify-deep-fixes.mjs`
+after the standard seed, with ADMIN_PASSWORD set. This is destructive test tooling
+for the fixed container names and port, not the live shop. It verifies durable
+cancellation, concurrent cart changes/checkout, numeric bounds and Redis stalls.
+The default Redis cache connect/read deadlines are 0.5 seconds, configurable via
+REDIS_CACHE_TIMEOUT and REDIS_CACHE_READ_WRITE_TIMEOUT (minimum 0.05); retries
+are disabled for this optional cache. A stalled-cache probe completed with 200
+in 549.8 ms. All 101 Laravel tests (496 assertions) passed. Historical load tables
+are unchanged measurements, not new benchmarks attributed to these fixes.

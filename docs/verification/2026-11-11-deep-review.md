@@ -9,7 +9,7 @@ was performed. Standards/correctness reviewed the work since main; the requireme
 
 The earlier 94-test suite and demonstrations remain historical passing checks.
 The five findings below show those checks did not establish full acceptance.
-**All five remain open.** This review changes documentation, not application logic.
+**All five are now resolved and regression-verified; see the remediation evidence below.** The sections below preserve the original counterexamples at `e3e599d`. The initial review changed documentation only; later commits implement the fixes.
 The first four are inherited core behaviors; the fifth concerns the new Redis path.
 
 ## Standards and correctness: four confirmed findings
@@ -121,3 +121,73 @@ Temporary reproduction scripts lived under /tmp; the steps and measured evidence
 above are retained here. These are targeted counterexamples, not passing new
 acceptance tests. Further source-only resilience hypotheses were excluded from
 confirmed findings.
+
+## Remediation and verified result
+
+Implementation commits:
+
+- `56d44a0`: persist cancellation intent before remote Release; block incompatible
+  status changes with 409 while pending; finish status and intent atomically.
+  `orders:recover-cancellations` retries pending intents each minute through the
+  existing scheduler. Manual cancellation retries use the same reservation ID.
+- `3289593`: acquire the persistent cart-row lock before all cart read/modify/write
+  operations and hold it through checkout reservation, order persistence and cart
+  consumption. Keep the checkout intent outside that transaction for crash recovery.
+  Validate aggregate total before Reserve; reject >99,999,999.99 with 422 and retain
+  the cart. Also align cart/checkout with the inventory's existing 100-line cap,
+  returning errors.cart before any Reserve rather than allowing an internal RPC error.
+- `5a99ac4`: apply 0.5-second connect and read/write timeouts and zero retries to
+  the optional Redis cache connection; bound stalled-server failure as well as
+  connection refusal. Other cache/session/JWT state keeps its existing store.
+
+Verification on the updated source:
+
+- Module-boundary guard passed; 101 Laravel tests passed, 496 assertions. New tests
+  include failure after remote Release, timeout after Release commits, retry/recovery
+  idempotency, inventory outage during cancellation, numeric boundary success,
+  aggregate rejection, new-line rejection at capacity and legacy-cart repair.
+- Real HTTP/gRPC/PostgreSQL/Redis regressions are retained in
+  [verify-deep-fixes.mjs](../performance/verify-deep-fixes.mjs). The cancellation
+  persistence fault now leaves a durable intent, rejects completion with 409,
+  permits reselling returned stock safely, and eventually marks the original
+  cancelled without increasing stock a second time.
+- Ten concurrent successful additions retain ten lines; two simultaneous checkout
+  requests return one 201 and one 422, with exactly one persisted order. An addition
+  started while checkout is paused survives in the cart and is not purchased.
+- The 120,000,000.00 case returns 422 without changing inventory's reservation
+  count; stock and cart are retained. A preexisting 101-line cart returns 422 without
+  RPC, rejects a new line at capacity, and successfully reserves/orders 100 lines
+  after removing one.
+- A stalled Redis process returned HTTP 200 with X-Catalog-Cache: unavailable in
+  549.8 ms on the initial fixed-image run. The final-image regression completed in 548.3 ms and also verifies
+  this behavior against a 2.5-second wall-clock bound.
+- Existing real HTTP security/workflow, 10-buyer last-unit race, replica-lag and ETag
+  demonstration, and forced order-line persistence-failure compensation passed.
+  The last-unit race still had one 201, nine conflicts, final stock zero and one order.
+- Source built offline using cached layers as
+  `3cd941e30be780acdcf39c8d54533cdac1990aee84bcecf04caf7bc84e3b86b3`.
+  No new dependencies or images were downloaded for these fixes.
+- Independent standards and specification re-reviews found no additional actionable
+  defect in these fixes; the follow-up 100-line limit was also reviewed.
+
+Run the new demonstration only after seeding the disposable performance stack:
+
+```fish
+env DISPOSABLE_CONFIRM=novacart-perf ADMIN_PASSWORD='DisposableAdminPassword' node docs/performance/verify-deep-fixes.mjs
+```
+
+This creates fixture customers/products/orders and temporary SQL fault/delay
+triggers, and pauses Redis. Triggers are removed and Redis resumed in finally
+blocks. If the process is forcibly killed, restore Redis with
+`docker kill --signal CONT novacart-perf_redis_1`, then drop triggers/functions
+`verify_fix_cancel` and `verify_fix_cart_delay` in the disposable core database.
+Discard only the named performance project's volumes to remove fixtures.
+
+Deployment requires the new migration; the normal app entrypoint applies it
+before starting FPM. Recover outstanding intents with `orders:recover-cancellations`
+and keep the scheduler running. Recovery requires eventually reachable databases
+and inventory. Fixes do not automatically repair orders corrupted before durable
+cancellation intents existed; such legacy data needs a separate audit. Product
+administration still spans independent stores; no distributed-transaction or
+absolute absence-of-bugs guarantee is claimed. Existing Symfony advisories remain
+outside these five fixes and were not reassessed.

@@ -738,7 +738,7 @@
                 "{{productId}}"
               ]
             },
-            "description": "",
+            "description": "\n\nAt most 100 distinct products per cart; adding a new line above that limit returns 422 with errors.cart. Existing lines remain editable/removable.",
             "auth": {
               "type": "bearer",
               "bearer": [
@@ -795,7 +795,7 @@
                 "{{productId}}"
               ]
             },
-            "description": "",
+            "description": "\n\nAt most 100 distinct products per cart; adding a new line above that limit returns 422 with errors.cart. Existing lines remain editable/removable.",
             "auth": {
               "type": "bearer",
               "bearer": [
@@ -892,7 +892,7 @@
                 "orders"
               ]
             },
-            "description": "Places an order from the cart. Prices and stock are recalculated on the server; add a product to the cart first.",
+            "description": "Places an order from the cart. Prices and stock are recalculated on the server; add a product to the cart first.\n\nCart consumption is serialized with cart edits. Excess aggregate total (>99,999,999.99) or more than 100 distinct products returns 422 before inventory reservation; the cart is retained.",
             "auth": {
               "type": "bearer",
               "bearer": [
@@ -1687,7 +1687,7 @@
                 "status"
               ]
             },
-            "description": "pending → completed or cancelled; completed → cancelled. Cancelling restores stock. The customer is notified.",
+            "description": "pending → completed or cancelled; completed → cancelled. Cancelling restores stock. The customer is notified.\n\nCancellation is durable before stock release. If a cancellation is pending recovery, incompatible status changes return 409; retry cancellation or run orders:recover-cancellations on the server. The scheduler retries every minute. Normal public statuses remain pending/completed/cancelled.",
             "auth": {
               "type": "bearer",
               "bearer": [
