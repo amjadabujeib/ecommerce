@@ -31,6 +31,8 @@ final class FakeInventory implements InventoryGateway
 
     private bool $timeOutAfterNextReserve = false;
 
+    private bool $timeOutAfterNextRelease = false;
+
     public function availability(array $productIds): array
     {
         $this->ensureUp('GetStock');
@@ -120,6 +122,10 @@ final class FakeInventory implements InventoryGateway
         }
 
         $this->reservations[$reservationId]['status'] = 'released';
+        if ($this->timeOutAfterNextRelease) {
+            $this->timeOutAfterNextRelease = false;
+            throw new InventoryUnavailableException('Release: response timed out after commit');
+        }
 
         return true;
     }
@@ -151,6 +157,11 @@ final class FakeInventory implements InventoryGateway
     public function timeOutAfterNextReserve(): void
     {
         $this->timeOutAfterNextReserve = true;
+    }
+
+    public function timeOutAfterNextRelease(): void
+    {
+        $this->timeOutAfterNextRelease = true;
     }
 
     private function ensureUp(string $method): void
