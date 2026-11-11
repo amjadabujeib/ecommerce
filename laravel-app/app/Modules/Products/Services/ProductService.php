@@ -68,7 +68,6 @@ final class ProductService
     public function update(Product $product, array $attributes): Product
     {
         $image = $attributes['image'] ?? null;
-        $oldImage = $product->image_path;
         $stock = array_key_exists('stock_quantity', $attributes) ? (int) $attributes['stock_quantity'] : null;
         unset($attributes['image'], $attributes['stock_quantity']);
 
@@ -81,7 +80,13 @@ final class ProductService
         }
 
         try {
-            $product->fill($attributes)->save();
+            [$product, $oldImage] = DB::transaction(function () use ($product, $attributes): array {
+                $locked = Product::query()->lockForUpdate()->findOrFail($product->id);
+                $oldImage = $locked->image_path;
+                $locked->fill($attributes)->save();
+
+                return [$locked, $oldImage];
+            });
         } catch (Throwable $exception) {
             if (isset($attributes['image_path'])) {
                 $this->deleteImage($attributes['image_path']);
@@ -188,11 +193,12 @@ final class ProductService
      */
     public function delete(Product $product): void
     {
-        $imagePath = $product->image_path;
+        $imagePath = null;
 
-        $removedForGood = DB::transaction(function () use ($product): bool {
+        $removedForGood = DB::transaction(function () use ($product, &$imagePath): bool {
             // Lock the row so two administrators cannot delete it at once.
             $lockedProduct = Product::query()->lockForUpdate()->findOrFail($product->getKey());
+            $imagePath = $lockedProduct->image_path;
 
             $deletion = new ProductDeleting($lockedProduct->id, $lockedProduct->title);
             event($deletion);
