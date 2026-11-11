@@ -60,7 +60,7 @@ final class CheckoutService
                     if (count($cart) > CartService::MAX_LINES) {
                         throw ValidationException::withMessages(['cart' => 'An order may contain at most 100 different products.']);
                     }
-                    $products = $this->products->findMany(array_keys($cart));
+                    $products = $this->products->lockForCheckout(array_keys($cart));
                     if (count($products) !== count($cart)) {
                         throw new EmptyCartException('A product in your cart is no longer available. Please review your cart.');
                     }

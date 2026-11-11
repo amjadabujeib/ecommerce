@@ -6,6 +6,8 @@ use App\Modules\Products\Http\Resources\CategoryResource;
 use App\Modules\Products\Http\Resources\ProductResource;
 use App\Modules\Products\Models\Product;
 use App\Modules\Products\Services\ProductService;
+use App\Support\ReadRouter;
+use Illuminate\Support\Facades\DB;
 
 /** Batch catalog reads for callers outside Products. Writes stay in Products. */
 final class Catalog
@@ -14,13 +16,13 @@ final class Catalog
 
     public function find(int $id): CatalogProduct
     {
-        return $this->snapshot(Product::on(app(\App\Support\ReadRouter::class)->connection())->with('category')->findOrFail($id));
+        return $this->snapshot(Product::on(app(ReadRouter::class)->connection())->with('category')->findOrFail($id));
     }
 
     /** @return array<int, CatalogProduct> Active products by default; history may include removed ones. */
     public function findMany(array $ids, bool $withStock = false, bool $includeDeleted = false): array
     {
-        $products = Product::on(app(\App\Support\ReadRouter::class)->connection())->when($includeDeleted, fn ($query) => $query->withTrashed())
+        $products = Product::on(app(ReadRouter::class)->connection())->when($includeDeleted, fn ($query) => $query->withTrashed())
             ->with('category')->whereIn('id', array_unique($ids))->get();
         if ($withStock) {
             $this->products->withStock($products);
@@ -29,9 +31,25 @@ final class Catalog
         return $products->mapWithKeys(fn (Product $product): array => [$product->id => $this->snapshot($product)])->all();
     }
 
+    /**
+     * Primary snapshots locked against deletion until the caller commits.
+     *
+     * @return array<int, CatalogProduct>
+     */
+    public function lockForCheckout(array $ids): array
+    {
+        if (DB::transactionLevel() < 1) {
+            throw new \LogicException('Checkout catalog locks require a core transaction.');
+        }
+
+        return Product::query()->whereIn('id', array_unique($ids))->orderBy('id')
+            ->lockForUpdate()->with('category')->get()
+            ->mapWithKeys(fn (Product $product): array => [$product->id => $this->snapshot($product)])->all();
+    }
+
     public function availableUnits(int $id): int
     {
-        return $this->products->availableUnits(Product::on(app(\App\Support\ReadRouter::class)->connection())->findOrFail($id));
+        return $this->products->availableUnits(Product::on(app(ReadRouter::class)->connection())->findOrFail($id));
     }
 
     /** @return array{total_products: int, stock_units: int|null} */
