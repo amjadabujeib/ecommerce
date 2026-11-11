@@ -2,6 +2,8 @@
 
 **Result: PASS for all 18 technical acceptance criteria in SPEC.md, plus the agreed customer/admin GUI.** Team participation is excluded at the user's request; this is not a sign-off on per-member PR coverage or the final course grade. Requirement 3 remains deferred.
 
+The subsequent [GUI usability follow-up](gui-usability.md) addresses user feedback the original flow checks missed, and records the updated 89-test suite and product-navigation checks. The counts below describe the earlier audit.
+
 The audit compared the current checkout with [the original slide conversion](../requirements/requirements-1-2.md), [SPEC.md](../../SPEC.md), actual routes and implementation, and a fresh round of executable checks. It follows commit `04df4a1` and includes the final GUI/documentation/demo fixes described below. Earlier investigations are preserved in [the historical verification record](requirements-1-2.md).
 
 ## Requirement 1 — API design and security

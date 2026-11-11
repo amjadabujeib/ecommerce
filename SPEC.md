@@ -169,6 +169,8 @@ Provide `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, a suitable `
 
 The source slide excludes evaluation of frontend **design**, not explicitly a working frontend. The agreed repository scope includes a basic GUI at `/`, using the existing `/api/v1` endpoints. Customers can register/sign in, search/filter/page products, view images and availability, manage quantities in their cart, check out, read their orders, and manage notifications. Administrators can manage categories and products (including images/stock), inspect the dashboard and all orders, and change status. Visual polish is outside the acceptance gate.
 
+The interface uses dedicated product screens and hash routes for navigation, browser Back/Forward and deep-link reloads. Category selection uses names; catalog responses add public `categories` and `currency` metadata (detail responses also include `currency`). The cart exposes counts, quantities and an order summary. Guest purchase intent resumes after sign-in. Administrator overview/products/categories/orders are separate panels with a modal product editor. Messages use dismissible toasts or inline form errors, not product-detail presentation. See the [GUI usability follow-up](docs/verification/gui-usability.md) for the corrected browser checks.
+
 The interface uses a dark palette and local JavaScript/CSS without a frontend package install or build service. Catalog rendering keeps the latest request so delayed earlier responses cannot overwrite a newer filter/page. Stable asset paths require browser revalidation after deployments. User-supplied text is rendered with DOM text nodes. JWTs live in per-tab `sessionStorage`, refresh through the API and are removed on sign-out. All authorization, ownership, prices and stock decisions remain server-side. The shop CSP permits same-origin scripts/styles/images/connections; API CSP remains `default-src 'none'`. Proxy-generated errors use the JSON envelope, including 413 oversized requests and 502 unavailable PHP. Application FastCGI errors keep Laravel's response body.
 
 ## 4. Inventory contract, checkout, and failure semantics
@@ -237,7 +239,7 @@ The [final requirement-by-requirement audit](docs/verification/final-requirement
 Technical requirements 1–2 and the agreed basic GUI have passing acceptance evidence:
 
 - App, web and inventory images built from source using cached base/native layers and locked dependencies; final app/web builds also passed with networking disabled. Six isolated containers booted with migrations, seeding and scheduled recovery.
-- **88 Laravel tests, 400 assertions**, with failure-on-warning/notice enabled, and **15 real gRPC/PostgreSQL tests** passed.
+- **89 Laravel tests, 406 assertions**, with failure-on-warning/notice enabled, and **15 real gRPC/PostgreSQL tests** passed.
 - Real HTTP security/catalog/order/notifications and module-boundary demos passed. Last-unit test: ten buyers, one 201, nine 409s, one persisted order, stock zero.
 - Stopped inventory returned structured 503 in 1107 ms with a 500 ms test per-call deadline; stock visibility recovered in 946 ms after restart. Slow-service and persistence-failure demonstrations passed.
 - Real recovery demonstrated a process exiting with reserved stock, a failed release while inventory was down, and later stock restoration exactly once. Scheduler execution was observed.
