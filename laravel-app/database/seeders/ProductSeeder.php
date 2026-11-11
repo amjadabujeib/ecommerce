@@ -6,6 +6,7 @@ use App\Modules\Inventory\Contracts\InventoryGateway;
 use App\Modules\Products\Models\Category;
 use App\Modules\Products\Models\Product;
 use Illuminate\Database\Seeder;
+use Illuminate\Support\Facades\DB;
 
 class ProductSeeder extends Seeder
 {
@@ -16,6 +17,10 @@ class ProductSeeder extends Seeder
      */
     public function run(InventoryGateway $inventory): void
     {
+        if (DB::table('bootstrap_state')->where('name', 'catalog')->whereNotNull('completed_at')->exists()) {
+            return;
+        }
+
         $electronics = Category::query()->where('slug', 'electronics')->firstOrFail();
 
         $products = [
@@ -73,7 +78,7 @@ class ProductSeeder extends Seeder
             $stock = $product['stock_quantity'];
             unset($product['stock_quantity']);
 
-            $model = Product::query()->updateOrCreate(
+            $model = Product::query()->firstOrCreate(
                 ['title' => $product['title']],
                 [...$product, 'category_id' => $electronics->id],
             );
