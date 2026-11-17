@@ -2,8 +2,11 @@
 
 namespace App\Providers;
 
+use App\Support\Database\RoutedPostgresConnection;
 use App\Support\ReadRouter;
 use Illuminate\Cache\RateLimiting\Limit;
+use Illuminate\Database\Connection;
+use Illuminate\Database\PostgresConnection;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
@@ -16,6 +19,13 @@ class AppServiceProvider extends ServiceProvider
     public function register(): void
     {
         $this->app->scoped(ReadRouter::class);
+        Connection::resolverFor('pgsql', function ($pdo, $database, $prefix, $config) {
+            $class = ($config['name'] ?? null) === 'pgsql'
+                ? RoutedPostgresConnection::class
+                : PostgresConnection::class;
+
+            return new $class($pdo, $database, $prefix, $config);
+        });
     }
 
     /**

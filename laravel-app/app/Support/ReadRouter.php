@@ -2,67 +2,115 @@
 
 namespace App\Support;
 
+use App\Support\Database\WriteCommitted;
 use Closure;
-use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Throwable;
 
-/** Eligible reads use standby only after the caller's committed WAL is visible. */
+/** Request-scoped consistency policy. HTTP paths and verbs never select a database. */
 final class ReadRouter
 {
     private ?Closure $fence = null;
 
+    private bool $active = false;
+
+    private bool $resolving = false;
+
     private bool $resolved = false;
 
-    private ?string $selected = null;
+    private bool $replica = false;
 
-    public function __construct(private readonly Request $request) {}
+    private bool $committed = false;
+
+    private int $primaryDepth = 0;
+
+    private string $lastRole = 'primary';
 
     public function configure(Closure $fence): void
     {
         $this->fence = $fence;
-        $this->resolved = false;
-        $this->selected = null;
+        $this->active = true;
+        $this->resolving = $this->resolved = $this->replica = $this->committed = false;
+        $this->primaryDepth = 0;
+        $this->lastRole = 'primary';
     }
 
-    public function connection(): ?string
+    public function finish(): void
     {
-        // A different actor may have changed a price since this customer's
-        // last write. Their WAL fence cannot validate a checkout quotation.
-        if ($this->request->is('api/v1/cart', 'api/v1/checkout')) {
-            return null;
-        }
-        if (app()->runningInConsole() || ! config('performance.replica') || config('database.default') !== 'pgsql' || ! $this->request->isMethod('GET')) {
-            return null;
-        }
-        if ($this->resolved) {
-            return $this->selected;
-        }
-        $this->resolved = true;
+        $this->active = false;
+        $this->fence = null;
+    }
+
+    public function enabled(): bool
+    {
+        return $this->active && config('performance.replica') && config('database.default') === 'pgsql';
+    }
+
+    public function onPrimary(callable $work): mixed
+    {
+        $this->primaryDepth++;
         try {
-            $fence = $this->fence ? ($this->fence)() : null;
-            $ready = DB::connection('replica')->selectOne(
-                'SELECT pg_is_in_recovery() AND (?::pg_lsn IS NULL OR pg_last_wal_replay_lsn() >= ?::pg_lsn) AS ready', [$fence, $fence],
-            );
-            if ($ready->ready) {
-                $this->selected = 'replica';
-            }
-        } catch (Throwable) {
-            // A failed/lagging standby is not permission to return stale data.
-            $this->selected = null;
+            return $work();
+        } finally {
+            $this->primaryDepth--;
         }
-
-        return $this->selected;
     }
 
-    public function role(): string
+    public function allowsReplica(): bool
     {
-        return $this->connection() === 'replica' ? 'replica' : 'primary';
+        if (! $this->enabled() || $this->primaryDepth > 0 || $this->resolving || $this->committed) {
+            return false;
+        }
+        if (! $this->resolved) {
+            $this->resolving = true;
+            try {
+                $this->replica = $this->replayed($this->fence ? ($this->fence)() : null);
+                $this->resolved = true;
+            } finally {
+                $this->resolving = false;
+            }
+        }
+
+        return $this->replica;
+    }
+
+    public function replayed(?string $fence): bool
+    {
+        try {
+            return (bool) DB::connection('replica')->selectOne(
+                'SELECT pg_is_in_recovery() AND (?::pg_lsn IS NULL OR pg_last_wal_replay_lsn() >= ?::pg_lsn) AS ready', [$fence, $fence],
+            )->ready;
+        } catch (Throwable) {
+            return false;
+        }
     }
 
     public function usePrimary(): void
     {
         $this->resolved = true;
-        $this->selected = null;
+        $this->replica = false;
+    }
+
+    public function wrote(): void
+    {
+        if ($this->active) {
+            $this->committed = true;
+            event(new WriteCommitted);
+        }
+    }
+
+    public function hasWrites(): bool
+    {
+        return $this->committed;
+    }
+
+    public function recordRole(string $role): void
+    {
+        $this->lastRole = $role;
+    }
+
+    public function role(): string
+    {
+        return $this->lastRole;
     }
 }

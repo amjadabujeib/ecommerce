@@ -35,7 +35,7 @@ final class NotificationController extends Controller
 
     public function markAsRead(Request $request, string $notification): JsonResponse
     {
-        $notification = $this->inbox($request)->findOrFail($notification);
+        $notification = $this->inbox($request)->useWritePdo()->findOrFail($notification);
         $notification->markAsRead();
 
         return response()->json([

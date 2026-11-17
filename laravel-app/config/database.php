@@ -85,6 +85,16 @@ return [
         ],
 
         'pgsql' => [
+            'read' => [
+                'host' => env('DB_READ_HOST', 'db-replica'),
+                'port' => env('DB_READ_PORT', 5432),
+                'username' => env('DB_READ_USERNAME', 'novacart_reader'),
+                'password' => env('DB_READ_PASSWORD', 'novacart_read'),
+                'url' => null,
+                'options' => [PDO::ATTR_TIMEOUT => 2],
+            ],
+            'write' => [],
+            'sticky' => true,
             'driver' => 'pgsql',
             'url' => env('DB_URL'),
             'host' => env('DB_HOST', '127.0.0.1'),
@@ -97,6 +107,19 @@ return [
             'prefix_indexes' => true,
             'search_path' => 'public',
             'sslmode' => env('DB_SSLMODE', 'prefer'),
+        ],
+
+        'primary_control' => [
+            'driver' => 'pgsql',
+            'url' => env('DB_URL'),
+            'host' => env('DB_HOST', '127.0.0.1'),
+            'port' => env('DB_PORT', 5432),
+            'database' => env('DB_DATABASE', 'laravel'),
+            'username' => env('DB_USERNAME', 'root'),
+            'password' => env('DB_PASSWORD', ''),
+            'charset' => 'utf8', 'prefix' => '', 'search_path' => 'public',
+            'sslmode' => env('DB_SSLMODE', 'prefer'),
+            'options' => [PDO::ATTR_TIMEOUT => 2],
         ],
 
         'replica' => [
@@ -176,6 +199,19 @@ return [
             'backoff_algorithm' => env('REDIS_BACKOFF_ALGORITHM', 'decorrelated_jitter'),
             'backoff_base' => env('REDIS_BACKOFF_BASE', 100),
             'backoff_cap' => env('REDIS_BACKOFF_CAP', 1000),
+        ],
+
+        // Exclusive to catalog snapshots: flush() must never clear other application data.
+        'catalog' => [
+            'url' => env('REDIS_CATALOG_URL'),
+            'host' => env('REDIS_HOST', '127.0.0.1'),
+            'username' => env('REDIS_USERNAME'),
+            'password' => env('REDIS_PASSWORD'),
+            'port' => env('REDIS_PORT', '6379'),
+            'database' => env('REDIS_CATALOG_DB', '2'),
+            'timeout' => max(0.05, (float) env('REDIS_CACHE_TIMEOUT', 0.5)),
+            'read_write_timeout' => max(0.05, (float) env('REDIS_CACHE_READ_WRITE_TIMEOUT', 0.5)),
+            'max_retries' => 0,
         ],
 
         'cache' => [

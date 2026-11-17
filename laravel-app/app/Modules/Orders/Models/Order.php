@@ -5,6 +5,7 @@ namespace App\Modules\Orders\Models;
 use App\Modules\Orders\Enums\OrderStatus;
 use App\Modules\Orders\Policies\OrderPolicy;
 use App\Modules\Orders\PublicApi\OrderSummary;
+use App\Support\Database\PrimaryRouteBinding;
 use Database\Factories\OrderFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\UseFactory;
@@ -20,6 +21,8 @@ class Order extends Model
 {
     /** @use HasFactory<OrderFactory> */
     use HasFactory;
+
+    use PrimaryRouteBinding;
 
     /**
      * @return array<string, string>

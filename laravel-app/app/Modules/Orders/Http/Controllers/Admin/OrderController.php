@@ -9,13 +9,14 @@ use App\Modules\Orders\Http\Resources\OrderResource;
 use App\Modules\Orders\Models\Order;
 use App\Modules\Orders\Services\OrderPresentation;
 use App\Modules\Orders\Services\OrderService;
+use App\Support\ReadRouter;
 use Illuminate\Http\JsonResponse;
 
 final class OrderController extends Controller
 {
     public function index(OrderPresentation $presentation): JsonResponse
     {
-        $orders = Order::on(app(\App\Support\ReadRouter::class)->connection())
+        $orders = Order::query()
             ->with('items')
             ->withCount('items')
             ->latest()
@@ -32,23 +33,25 @@ final class OrderController extends Controller
         OrderService $orders,
         OrderPresentation $presentation,
     ): JsonResponse {
-        $newStatus = OrderStatus::from($request->validated('status'));
-        $previousStatus = $order->status;
+        return app(ReadRouter::class)->onPrimary(function () use ($request, $order, $orders, $presentation): JsonResponse {
+            $newStatus = OrderStatus::from($request->validated('status'));
+            $previousStatus = $order->status;
 
-        $order = $orders->updateStatus($order, $newStatus);
+            $order = $orders->updateStatus($order, $newStatus);
 
-        $order->load('items');
-        $presentation->prepare($order);
+            $order->load('items');
+            $presentation->prepare($order);
 
-        $message = match (true) {
-            $previousStatus === $newStatus => "Order #{$order->id} is already {$newStatus->label()}.",
-            $newStatus === OrderStatus::Cancelled => "Order #{$order->id} was cancelled and stock was restored.",
-            default => "Order #{$order->id} is now {$newStatus->label()}.",
-        };
+            $message = match (true) {
+                $previousStatus === $newStatus => "Order #{$order->id} is already {$newStatus->label()}.",
+                $newStatus === OrderStatus::Cancelled => "Order #{$order->id} was cancelled and stock was restored.",
+                default => "Order #{$order->id} is now {$newStatus->label()}.",
+            };
 
-        return response()->json([
-            'message' => $message,
-            'data' => (new OrderResource($order))->resolve(),
-        ]);
+            return response()->json([
+                'message' => $message,
+                'data' => (new OrderResource($order))->resolve(),
+            ]);
+        });
     }
 }

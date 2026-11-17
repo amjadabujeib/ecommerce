@@ -231,7 +231,7 @@ final class CartService
     private function readDatabase(Actor $user): array
     {
         return $this->normalize(
-            CartItem::query()
+            CartItem::query()->useWritePdo()
                 ->whereHas('cart', fn ($query) => $query->where('user_id', (int) $user->getAuthIdentifier()))
                 ->pluck('quantity', 'product_id')
                 ->all(),

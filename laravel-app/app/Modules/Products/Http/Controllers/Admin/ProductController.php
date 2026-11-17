@@ -11,6 +11,7 @@ use App\Modules\Products\Http\Resources\ProductResource;
 use App\Modules\Products\Models\Category;
 use App\Modules\Products\Models\Product;
 use App\Modules\Products\Services\ProductService;
+use App\Support\ReadRouter;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Http\JsonResponse;
 
@@ -52,14 +53,16 @@ final class ProductController extends Controller
 
     public function edit(Product $product, ProductService $productService): JsonResponse
     {
-        $productService->withStock($product->load('category'));
+        return app(ReadRouter::class)->onPrimary(function () use ($product, $productService): JsonResponse {
+            $productService->withStock($product->load('category'));
 
-        return response()->json([
-            'data' => [
-                'product' => (new ProductResource($product))->resolve(),
-                'categories' => CategoryResource::collection($this->categories())->resolve(),
-            ],
-        ]);
+            return response()->json([
+                'data' => [
+                    'product' => (new ProductResource($product))->resolve(),
+                    'categories' => CategoryResource::collection($this->categories())->resolve(),
+                ],
+            ]);
+        });
     }
 
     public function update(
@@ -80,12 +83,14 @@ final class ProductController extends Controller
         Product $product,
         ProductService $products,
     ): JsonResponse {
-        $product = $products->updateStock($product, $request->integer('stock_quantity'));
+        return app(ReadRouter::class)->onPrimary(function () use ($product, $products, $request): JsonResponse {
+            $product = $products->updateStock($product, $request->integer('stock_quantity'));
 
-        return response()->json([
-            'message' => "Stock for \"{$product->title}\" is now {$product->availableStock} unit(s).",
-            'data' => (new ProductResource($product->load('category')))->resolve(),
-        ]);
+            return response()->json([
+                'message' => "Stock for \"{$product->title}\" is now {$product->availableStock} unit(s).",
+                'data' => (new ProductResource($product->load('category')))->resolve(),
+            ]);
+        });
     }
 
     public function destroy(Product $product, ProductService $products): JsonResponse

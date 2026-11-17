@@ -1,7 +1,8 @@
 # Requirement 3: performance and consistency
 
-Work is on `feat/requirement-3-performance`, based on the completed requirements
-1–2 acceptance branch. The initial checks and the [deeper-review remediation](../verification/2026-11-11-deep-review.md) are locally verified. All five earlier gaps are resolved. The [six follow-up findings](../verification/2026-11-11-follow-up-review.md), including cross-origin ETags and restart seeding, are also fixed and regression-verified.
+The original milestone used `feat/requirement-3-performance`, based on the completed
+requirements 1–2 acceptance branch. The current evaluator-feedback follow-up is on
+`fix/catalog-invalidation-db-routing`. The initial checks and the [deeper-review remediation](../verification/2026-11-11-deep-review.md) are locally verified. All five earlier gaps are resolved. The [six follow-up findings](../verification/2026-11-11-follow-up-review.md), including cross-origin ETags and restart seeding, are also fixed and regression-verified.
 
 The baseline tools require an isolated PostgreSQL database ending in `_perf`
 and APP_ENV=testing. Do not run them on the live shop. Historical fixtures contain
@@ -68,28 +69,44 @@ a physical replication slot. The setup job also works with an existing primary
 volume; it creates replication credentials, a SELECT-only application role and
 default SELECT privileges for future migrations. Redis has no published host port.
 
-Writes, authentication, authorization, route binding, command-line jobs, cart
-quotations, checkout previews and order placement stay on the primary. Eligible order lists, dashboard order
-reads, catalog reads and batched profile/product enrichment use the standby.
-After a successful authenticated business write, middleware saves the primary's
-committed WAL position as a monotonic per-user fence in the primary database.
-Each later HTTP request compares standby replay against that fence and falls
-back to primary during lag or an unavailable standby. This works across requests
-and survives Redis outages. It is not a global guarantee that another user's
-order changes are instantly visible on the replica. Product caching additionally
-checks a global catalog version to guarantee fresh catalog representations.
+Laravel's read/write connection chooses primary for mutations, transactions and
+locking reads, and replica for ordinary reads after the user's WAL fence is
+replayed. The policy never checks API paths or HTTP verbs. Authentication (including direct credential and JWT blacklist reads), complete order
+detail loading, route binding, authoritative cart/checkout reads and consistency bookkeeping explicitly
+use primary. Console jobs stay primary unless a test explicitly configures a
+request context. The middleware observes database commits rather than assuming
+that a particular HTTP method wrote data. A committed write followed by an error
+response still records a fence. A rolled-back transaction does not.
 
-Database triggers advance `catalog_versions` in the same transaction as product
-or category writes, including bulk SQL writes. Keys are
-`catalog:v{version}:{list|detail}:{sha256(parameters)}`, plus Laravel's configured
+Keys are `catalog:{list|detail}:{sha256(parameters)}`, plus Laravel's configured
 prefix. List parameters include search, category and page; detail includes ID.
-Each entry expires after 60 seconds by default (`CATALOG_CACHE_TTL`). Invalidated
-versions become unreachable immediately and expire naturally. A late fill from
-an old request cannot replace the current version. Before a cache miss uses the
-standby, its catalog version must have caught up with primary. Redis failures
-bypass the cache. Only plain catalog snapshots are cached: stock is fetched live
-over gRPC, and reservations remain atomic in the inventory service. Private
-orders, tokens, notifications, passwords and checkout decisions are not cached.
+Each entry expires after 60 seconds by default (`CATALOG_CACHE_TTL`). The dedicated
+`catalog` cache store uses the exclusive Redis `catalog` connection/database 2
+(`REDIS_CATALOG_DB`). General Redis/database 1 data is not invalidated. Never
+share this catalog database with other uses: invalidation physically flushes it.
+The implementation rejects the configured general Redis databases and incompatible
+cache stores before it can flush anything.
+
+Product/category triggers mark a boolean `catalog_cache_state.needs_invalidation`
+inside the transaction, covering bulk/direct SQL and soft deletion. Successful
+application commits attempt physical deletion immediately; pending invalidation
+is also drained before cache access, covering external writes and process loss.
+The flag clears only after successful Redis deletion. Shared PostgreSQL advisory
+transaction locks cover cache reads/fills; mutations and deletion acquire the same
+lock exclusively. One-use Redis fill permits additionally prevent stale publication if the PostgreSQL
+control connection is lost: FLUSHDB revokes outstanding permits, and publication
+checks and consumes the permit atomically in Lua. Coordination
+uses a separate primary connection, a 500 ms lock timeout, and no inventory RPCs
+inside the lock. Failures serve uncached primary data and retain recovery state.
+
+Before loading a catalog snapshot from replica, compare its replay position with
+current primary WAL, including when caching is disabled. There is no catalog
+version counter or versioned namespace. Only plain catalog snapshots are cached:
+stock is fetched live over gRPC, and reservations remain atomic in Inventory.
+Private orders, tokens, notifications, passwords and checkout decisions are not
+cached. The WAL fence protects an actor's own writes across requests; it does not
+make every order read globally current. Failed replica reads may retry on primary;
+mutations are not automatically replayed after connection loss.
 
 Product ETags hash the complete JSON representation, including related products
 and live stock. `If-None-Match` uses standard Symfony conditional handling:
@@ -164,7 +181,10 @@ An interrupted first base backup may require recreating only the disposable
 replica volume; never erase the primary to repair a replica. Password changes for
 replication require updating the persisted standby connection credentials too.
 
-## Verification evidence
+## Historical verification evidence
+
+The following records describe the earlier versioned implementation. Current
+replacement evidence is in [the 2026-11-17 report](../verification/2026-11-17-cache-routing.md).
 
 - Laravel: 94 tests passed with 442 assertions, including cache expiry, invalidation, ETags and production rate-limit guards.
 - Last-unit race through real HTTP/gRPC/PostgreSQL: 10 buyers, one 201, nine conflicts, exactly one persisted order, final stock zero.
@@ -273,3 +293,109 @@ validation, canonical administrator identities and browser session isolation. Ru
 The guarded runtime harness is `docs/performance/verify-session-admin-fixes.mjs`;
 real expired-JWT/browser coverage is `docs/demo/session-browser.mjs`. These are
 correctness checks, not revised performance measurements.
+
+## k6 evaluator workload
+
+For new evaluation runs, use [run-k6.mjs](run-k6.mjs), which starts the actual
+[load.k6.js](load.k6.js) workload sequentially for the four existing endpoints.
+The original `load.mjs` and committed measurements remain historical evidence;
+rerun **every** comparison stage with k6 rather than mixing generators.
+
+Requires local k6 (verified with 2.3.0), Node.js and the seeded performance stack:
+
+```fish
+read --silent --export --prompt-str 'Performance administrator password: ' ADMIN_PASSWORD
+env STAGE=A-baseline CONCURRENCY=4 WARMUP_SECONDS=3 DURATION_SECONDS=20 \
+    OUTPUT=/tmp/A-baseline-k6.json node docs/performance/run-k6.mjs
+```
+
+`STAGE` only labels results. Select `indexes-control` and remove the three added
+indexes before a baseline. Follow the [verification and reproduction guide](../verification/2026-11-17-cache-routing.md)
+for index restoration, stage switching, EXPLAIN and consistency checks.
+
+k6 uses constant VUs and excludes warmup/login from custom response-time metrics.
+The table reports p50/p95/p99 wall-clock milliseconds and completed requests divided
+by measured elapsed time including in-flight completion. Built-in global k6 metrics
+include setup/warmup; use the custom table for comparisons. Warmup and measured
+requests must return 200; failures abort and no valid combined report is produced.
+The script disables redirects, targets only the local performance API, and makes
+GET requests after login. It does not alter indexes or performance settings.
+
+Outputs: readable terminal table, combined JSON and `.txt` table, per-endpoint JSON
+and native `.metrics.json` summaries. Tokens stay in memory. No remote JS imports
+are used; the runner disables usage reporting. Do not use verbose HTTP debug logs,
+which may expose authentication data. `K6_BIN` can select an installed executable.
+
+Primary references: [constant VUs](https://grafana.com/docs/k6/latest/using-k6/scenarios/executors/constant-vus/),
+[execution context](https://grafana.com/docs/k6/latest/javascript-api/k6-execution/),
+and [custom summaries](https://grafana.com/docs/k6/latest/results-output/end-of-test/custom-summary/).
+
+Tool verification on 2026-11-12: k6 2.3.0 executed all four real local endpoints
+with one VU, one-second warmup and five-second measurements. All measured responses
+returned 200; JSON validation confirmed ordered percentiles and consistent
+throughput arithmetic. These are tooling smoke checks, not replacement baseline
+or acceptance benchmarks. No routing settings, indexes or business records were
+changed; authentication creates ordinary JWT/cache activity. A fresh four-VU,
+20-second-per-endpoint comparison must be run for evaluation.
+
+The N+1 presentation check now accepts `--verbose`: copy
+`laravel-app/tests/Architecture/verify-presentation.php` into the test app and run
+`php /tmp/verify-presentation.php --verbose` as www-data. It prints actual SQL,
+ID bindings, timings and query counts for 1/4/8 orders containing distinct products.
+Verified against the real performance PostgreSQL database: five queries at each
+size; fixtures rolled back. It is a focused CLI presentation trace, not whole-HTTP
+instrumentation, and its SQL timings are not additional load benchmarks.
+
+For an illustrative orders/lines before-and-after demo, run
+`node docs/performance/run-nplus1.mjs` from the repository root. The runner copies
+`nplus1-before-after.php` to the existing disposable performance app on every run,
+including after container recreation. It requires testing mode and database
+`novacart_perf`. For 1/4/8 orders, separate line lookups use 2/5/9 SQL queries and
+eager loading uses 2/2/2. This intentionally inefficient example is not a historical
+deployed version; it excludes catalog/customer enrichment. Temporary fixtures
+roll back, though ID sequences advance. The comparison passed on the real local
+performance PostgreSQL database on 2026-11-12.
+
+## Cache deletion and operation routing verification (2026-11-17)
+
+The replacement uses stable keys, physical deletion and native database-operation
+routing. Run its self-cleaning integration harness only with authorization to start
+isolated services; it requires already-cached images and performs no downloads:
+
+```fish
+env DISPOSABLE_CONFIRM=cache-routing node docs/performance/verify-cache-routing.mjs
+```
+
+The harness creates a private network, fresh primary/standby PostgreSQL, Redis,
+Inventory with its own database, and a PHP HTTP server. It uses neither existing
+stack containers nor persisted volumes. It removes its containers/network in
+`finally`. Forced termination may require manually removing only the printed
+`novacart-routing-<pid>` resources. Tests include physical deletion, stable keys,
+rollback, Redis refusal/stall recovery, interrupted invalidation, concurrent cache
+fill versus write, WAL lag, HTTP-method-independent routing, current checkout
+prices and real gRPC order placement. PHP/SQLite tests remain complementary.
+
+For four comparable k6 stages on 200,000 orders / 600,000 lines:
+
+```fish
+env DISPOSABLE_CONFIRM=cache-routing RUN_K6=true \
+    RESULTS_DIR=/tmp/novacart-routing-k6 node docs/performance/verify-cache-routing.mjs
+```
+
+All stages use four VUs, three seconds warmup and twenty measured seconds per
+endpoint. ETags remain enabled throughout. Baseline removes the three measured
+indexes; indexes-control restores them; replica-only enables read routing;
+replica-cache additionally enables Redis. These runs use PHP's four-worker CLI
+HTTP server on an ephemeral loopback port. They are internally comparable but
+must not be mixed numerically with historical FPM/nginx measurements or described
+as a measured improvement over the old versioning implementation.
+
+Current-source results: [four-stage measurement and validation report](../verification/2026-11-17-cache-routing.md#verified-results).
+Indexes account for the measured order latency improvement; this run does not
+show an additional catalog throughput improvement from Redis or replica routing.
+
+The PostgreSQL database cache and its locks default to the primary-only
+`primary_control` connection. If setting `DB_CACHE_CONNECTION` or
+`DB_CACHE_LOCK_CONNECTION`, use a primary-only connection. The regression harness
+also tests login/password freshness, logout/refresh revocation and complete
+cross-user order details with paused replay, under both array and database caches.

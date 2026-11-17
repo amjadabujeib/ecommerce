@@ -1,0 +1,65 @@
+{
+  "tool": "k6",
+  "stage": "routing-replica-cache",
+  "date": "2026-11-17T13:35:41.009Z",
+  "base_url": "http://127.0.0.1:40527/api/v1",
+  "concurrency": 4,
+  "warmup_seconds": 3,
+  "duration_seconds": 20,
+  "valid": true,
+  "results": [
+    {
+      "workload": "catalog",
+      "path": "/?page=1",
+      "requests": 2651,
+      "elapsed_seconds": 20.02,
+      "requests_per_second": 132.41758241758242,
+      "p50_ms": 29,
+      "p95_ms": 35,
+      "p99_ms": 57.5,
+      "statuses": {
+        "200": 2651
+      }
+    },
+    {
+      "workload": "product",
+      "path": "/products/10001",
+      "requests": 2898,
+      "elapsed_seconds": 20.019,
+      "requests_per_second": 144.76247564813428,
+      "p50_ms": 26,
+      "p95_ms": 47,
+      "p99_ms": 54,
+      "statuses": {
+        "200": 2898
+      }
+    },
+    {
+      "workload": "admin_orders",
+      "path": "/admin/orders?page=1",
+      "requests": 1723,
+      "elapsed_seconds": 20.037,
+      "requests_per_second": 85.99091680391277,
+      "p50_ms": 45,
+      "p95_ms": 55,
+      "p99_ms": 86,
+      "statuses": {
+        "200": 1723
+      }
+    },
+    {
+      "workload": "customer_orders",
+      "path": "/orders?page=1",
+      "requests": 2669,
+      "elapsed_seconds": 20.033,
+      "requests_per_second": 133.23017021913842,
+      "p50_ms": 29,
+      "p95_ms": 34,
+      "p99_ms": 57,
+      "statuses": {
+        "200": 2669
+      }
+    }
+  ],
+  "tool_version": "k6 v2.3.0 (commit/e088784614, go1.26.8, linux/amd64)"
+}

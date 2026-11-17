@@ -18,14 +18,14 @@ final class DashboardController extends Controller
         // figures come from the Products module.
         $productStats = $products->summary();
 
-        $orderStats = Order::on(app(\App\Support\ReadRouter::class)->connection())
+        $orderStats = Order::query()
             ->selectRaw(
                 'COUNT(*) AS total_orders, COALESCE(SUM(CASE WHEN status = ? THEN total_amount ELSE 0 END), 0) AS total_sales',
                 [OrderStatus::Completed->value],
             )
             ->first();
 
-        $recentOrders = Order::on(app(\App\Support\ReadRouter::class)->connection())
+        $recentOrders = Order::query()
             ->latest()
             ->limit(6)
             ->get();
