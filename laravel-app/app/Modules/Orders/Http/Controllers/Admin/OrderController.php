@@ -11,20 +11,27 @@ use App\Modules\Orders\Services\OrderPresentation;
 use App\Modules\Orders\Services\OrderService;
 use App\Support\ReadRouter;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 
 final class OrderController extends Controller
 {
-    public function index(OrderPresentation $presentation): JsonResponse
+    public function index(Request $request, OrderPresentation $presentation): JsonResponse
     {
-        $orders = Order::query()
-            ->with('items')
-            ->withCount('items')
-            ->latest()
-            ->paginate(12);
+        $load = function () use ($presentation): JsonResponse {
+            $orders = Order::query()
+                ->with('items')
+                ->withCount('items')
+                ->latest()
+                ->paginate(12);
 
-        $presentation->prepare($orders->getCollection());
+            $presentation->prepare($orders->getCollection());
 
-        return OrderResource::collection($orders)->response();
+            return OrderResource::collection($orders)->response();
+        };
+
+        return $request->boolean('consistent')
+            ? app(ReadRouter::class)->onPrimary($load)
+            : $load();
     }
 
     public function updateStatus(

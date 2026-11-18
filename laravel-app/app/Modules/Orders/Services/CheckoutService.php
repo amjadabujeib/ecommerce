@@ -39,6 +39,7 @@ final class CheckoutService
         private readonly InventoryGateway $inventory,
         private readonly OrderPresentation $presentation,
         private readonly ReservationRecovery $recovery,
+        private readonly OrderEvents $events,
     ) {}
 
     public function placeOrder(Actor $user): Order
@@ -48,11 +49,12 @@ final class CheckoutService
         $reservationId = (string) Str::uuid();
         $this->recovery->begin($reservationId);
         $reserveAttempted = false;
+        $eventId = null;
         try {
-            $order = DB::transaction(function () use ($user, $reservationId, &$reserveAttempted): Order {
+            $order = DB::transaction(function () use ($user, $reservationId, &$reserveAttempted, &$eventId): Order {
                 $this->recovery->lock($reservationId);
 
-                return $this->cart->locked(function () use ($user, $reservationId, &$reserveAttempted): Order {
+                return $this->cart->locked(function () use ($user, $reservationId, &$reserveAttempted, &$eventId): Order {
                     $cart = array_filter($this->cart->raw(), fn (int $quantity): bool => $quantity >= 1);
                     if ($cart === []) {
                         throw new EmptyCartException;
@@ -79,6 +81,7 @@ final class CheckoutService
                     $order = $this->createOrder($user, $cart, $products, $reservationId);
                     $this->cart->clear();
                     $this->recovery->committed($reservationId);
+                    $eventId = $this->events->record($order, 'order.created');
 
                     return $order;
                 });
@@ -88,6 +91,7 @@ final class CheckoutService
             throw $exception;
         }
 
+        $this->events->publish($eventId);
         OrderPlaced::dispatch($order->summary());
         $this->presentation->prepare($order);
 

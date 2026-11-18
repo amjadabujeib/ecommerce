@@ -10,11 +10,13 @@
     ],
     "license": "MIT",
     "require": {
-        "php": "^8.3",
         "google/protobuf": "^4.29",
         "grpc/grpc": "^1.57",
         "laravel/framework": "^13.17",
+        "laravel/reverb": "1.14.0",
         "laravel/tinker": "^3.0",
+        "php": "^8.3",
+        "php-amqplib/php-amqplib": "3.7.5",
         "php-open-source-saver/jwt-auth": "^2.9",
         "predis/predis": "^3.0"
     },

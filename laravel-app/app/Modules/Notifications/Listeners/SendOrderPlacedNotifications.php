@@ -16,6 +16,10 @@ final class SendOrderPlacedNotifications
 
     public function handle(OrderPlacedEvent $event): void
     {
+        if (config('messaging.enabled')) {
+            return; // The durable RabbitMQ consumer owns asynchronous delivery.
+        }
+
         $order = $event->order;
 
         $this->users->notify($order->userId, new OrderPlaced($order));

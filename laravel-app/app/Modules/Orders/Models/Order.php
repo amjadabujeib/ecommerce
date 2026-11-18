@@ -24,6 +24,8 @@ class Order extends Model
 
     use PrimaryRouteBinding;
 
+    protected $attributes = ['revision' => 1];
+
     /**
      * @return array<string, string>
      */
@@ -31,6 +33,7 @@ class Order extends Model
     {
         return [
             'total_amount' => 'decimal:2',
+            'revision' => 'integer',
             'status' => OrderStatus::class,
         ];
     }

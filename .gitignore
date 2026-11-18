@@ -39,3 +39,7 @@ laravel-app/storage/app/
 laravel-app/storage/*.key
 laravel-app/public/storage
 laravel-app/bootstrap/cache/*.php
+
+# Pinned browser runtime assets are owned source, unlike Composer vendor directories.
+!laravel-app/public/assets/vendor/
+!laravel-app/public/assets/vendor/**

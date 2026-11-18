@@ -43,4 +43,34 @@ final class UserDirectory
     {
         Delivery::send(User::query()->useWritePdo()->admins()->get(), $notification);
     }
+
+    /** @return array{id:int,email:string,username:string}|null */
+    public function recipient(int $id): ?array
+    {
+        $user = User::query()->useWritePdo()->find($id);
+
+        return $user ? ['id' => (int) $user->id, 'email' => $user->email, 'username' => $user->username] : null;
+    }
+
+    public function isAdministrator(int $id): bool
+    {
+        return User::query()->useWritePdo()->whereKey($id)->admins()->exists();
+    }
+
+    /** @return list<int> */
+    public function administratorIds(): array
+    {
+        return User::query()->useWritePdo()->admins()->pluck('id')->map(fn ($id): int => (int) $id)->all();
+    }
+
+    public function notifyOnce(int $userId, Notification $notification, string $id): void
+    {
+        $user = User::query()->useWritePdo()->findOrFail($userId);
+        DB::table('notifications')->insertOrIgnore([
+            'id' => $id, 'type' => get_class($notification),
+            'notifiable_type' => self::NOTIFIABLE_TYPE, 'notifiable_id' => $userId,
+            'data' => json_encode($notification->toArray($user), JSON_THROW_ON_ERROR),
+            'read_at' => null, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+    }
 }

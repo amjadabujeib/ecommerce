@@ -211,7 +211,11 @@ async function verifyRecovery(s) {
     await written;
     assert.ok(Date.now()-started < 5000, 'Table/advisory contention must not deadlock.');
 
-    p('exec', s.app, 'php', 'artisan', 'migrate:rollback', '--step=1', '--force', '--no-interaction');
+    // Later milestones add migrations after catalog invalidation. Roll back through
+    // this exact migration rather than assuming it remains the newest migration.
+    const steps = Number(sql("SELECT count(*) FROM migrations WHERE migration >= '2026_11_17_000001_replace_catalog_versions_with_invalidation'"));
+    assert.ok(steps >= 1);
+    p('exec', s.app, 'php', 'artisan', 'migrate:rollback', '--step='+steps, '--force', '--no-interaction');
     assert.ok(Number(sql('SELECT version FROM catalog_versions')) > 1);
     p('exec', s.app, 'php', 'artisan', 'migrate', '--force', '--no-interaction');
     assert.equal(sql("SELECT count(*) FROM information_schema.tables WHERE table_name='catalog_versions'"), '0');

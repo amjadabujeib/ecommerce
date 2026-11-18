@@ -22,3 +22,7 @@ storage/app/public/*
 storage/app/.docker-secrets
 docker-compose.yml
 Dockerfile
+
+# Keep the checked-in browser client while excluding Composer's vendor tree.
+!public/assets/vendor/
+!public/assets/vendor/**

@@ -15,16 +15,22 @@ final class OrderController extends Controller
 {
     public function index(Request $request, OrderPresentation $presentation): JsonResponse
     {
-        $orders = Order::query()
-            ->where('user_id', $request->user()->getAuthIdentifier())
-            ->with('items')
-            ->withCount('items')
-            ->latest()
-            ->paginate(10);
+        $load = function () use ($request, $presentation): JsonResponse {
+            $orders = Order::query()
+                ->where('user_id', $request->user()->getAuthIdentifier())
+                ->with('items')
+                ->withCount('items')
+                ->latest()
+                ->paginate(10);
 
-        $presentation->prepare($orders->getCollection(), customers: false);
+            $presentation->prepare($orders->getCollection(), customers: false);
 
-        return OrderResource::collection($orders)->response();
+            return OrderResource::collection($orders)->response();
+        };
+
+        return $request->boolean('consistent')
+            ? app(ReadRouter::class)->onPrimary($load)
+            : $load();
     }
 
     public function show(Order $order, OrderPresentation $presentation): JsonResponse

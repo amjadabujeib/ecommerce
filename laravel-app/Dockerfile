@@ -20,7 +20,7 @@ FROM --platform=linux/amd64 php:8.5.12-fpm@sha256:c34bcf437ed61bd5e4c1114494eaf1
 # PostgreSQL support; this small extension is independent of gRPC.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq-dev \
-    && docker-php-ext-install pdo_pgsql \
+    && docker-php-ext-install pdo_pgsql sockets pcntl \
     && rm -rf /var/lib/apt/lists/*
 
 # Ship the previously compiled gRPC extension: no PECL download or C++ build.

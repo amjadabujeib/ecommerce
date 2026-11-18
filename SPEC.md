@@ -10,10 +10,11 @@ Source presentations, converted slide by slide into English:
 
 - [Requirements 1 and 2](docs/requirements/requirements-1-2.md): 15 slides; abbreviated below as **R12**.
 - [Requirement 3](docs/requirements/requirement-3.md): 12 slides; abbreviated below as **R3**.
+- [Requirement 4](docs/requirements/requirement-4.md): 12 slides; abbreviated below as **R4**, supplemented by the [interview checklist image conversion](docs/requirements/requirement-4-interview.md).
 
 The presentations govern course obligations. This file governs the repository's chosen implementation of those obligations. README descriptions, collection assertions, comments, and example scripts are supporting evidence, not proof of correctness. When they disagree, reconcile them explicitly rather than silently changing the course scope.
 
-**Current priority:** requirements 1–3 review hardening is locally verified, including the [continued session/administration fixes](docs/verification/2026-11-11-session-admin-hardening.md), [six follow-up fixes](docs/verification/2026-11-11-follow-up-review.md) and [earlier five fixes](docs/verification/2026-11-11-deep-review.md). Preserve the evidence and obtain shared review before merging `feat/requirement-3-performance`. Requirements 4–6 remain roadmap context only.
+**Current priority:** requirements 1–3 have local technical verification, including the cache/routing corrections in commit `3bc965a` and [the latest verification report](docs/verification/2026-11-17-cache-routing.md). Shared review, merge/deployment and per-member course participation remain separate from local technical evidence. Requirement 4 now has implementation, automated verification, real Gmail inbox receipt and a visible two-browser demonstration (see section 7); clean production-image build and shared course/team sign-off remain separate. Requirements 5–6 remain roadmap context only.
 
 ## 2. Course requirements and acceptance criteria
 
@@ -60,7 +61,7 @@ The course does not prescribe SQL lock syntax, UUIDs, exact HTTP failure codes, 
 - Node.js inventory uses gRPC and PostgreSQL. The shared contract is [inventory.proto](proto/inventory/v1/inventory.proto), package `inventory.v1`.
 - Compose defines `app` (PHP-FPM), `web` (Nginx, host port 8080 by default), `db` (core PostgreSQL), `inventory` (internal gRPC port 50051), `inventory-db` (separate PostgreSQL), and `scheduler` (the same core image running Laravel scheduled recovery). The scheduler waits for PHP-FPM health after migrations. Persistent volumes retain storage and database data.
 - The core has no direct inventory database access. Inventory product identifiers correspond to catalog identifiers without cross-database foreign keys.
-- Refresh/logout, cart, category administration, and persistent notifications are existing project design choices beyond the course's minimum endpoint list. Asynchronous notification delivery and WebSockets belong to a later milestone.
+- Refresh/logout, cart, category administration, and persistent notifications are existing project design choices beyond the course's minimum endpoint list. Asynchronous notification delivery and WebSockets are available through the optional requirement 4 Compose overlay described in section 7.
 
 ### Module ownership and public interfaces
 
@@ -264,7 +265,7 @@ Technical requirements 1–2 and the agreed basic GUI have passing acceptance ev
 
 [The verification record](docs/verification/requirements-1-2.md) preserves commands, detailed scope, earlier failures and current evidence. These are functional acceptance results, not proof against every distributed failure: recovery needs a reachable core database and eventual inventory availability; product administration and cancellation still span independent databases without a distributed transaction. No high-volume performance claim is made.
 
-The **technical requirements 1–2 gate is satisfied** under the user's agreed scope. Course participation is explicitly set aside by the user; main protection/one-review enforcement was previously verified, but per-member coverage is not being signed off. Requirement 3 remains deferred and has no work branch yet.
+The **technical requirements 1–2 gate is satisfied** under the user's agreed scope. Course participation is explicitly set aside by the user; main protection/one-review enforcement was previously verified, but per-member coverage is not being signed off. At that historical gate, requirement 3 was still deferred; section 6 and subsequent verification supersede that status.
 
 ## 6. Requirement 3 — active performance and caching milestone
 
@@ -302,9 +303,82 @@ Implemented decisions and evidence:
 
 Requirement 3 checks and the corrected deeper-review regressions are recorded in the performance report. The live requirements 1–2 deployment has not been replaced. Existing dependency-audit Symfony advisories remain a separate maintenance item; exploitability was not assessed here. The 30 MiB download authorization was respected; later builds used cached layers offline.
 
-## 7. Scope and team workflow
+## 7. Requirement 4 — asynchronous queues and real-time
 
-Requirements 1–2 exclude payment providers, frontend visual polish, discounts/reviews/shipping integrations, and requirement 3 optimizations. Basic Notifications remains a required module; only asynchronous/real-time delivery is deferred. Requirements 4–6 concern asynchronous/real-time processing, scaling/load distribution, and monitoring/fault tracing; specific broker/APM products are not mandated by the supplied decks.
+**Status (2026-11-18): implemented and locally verified, including real Gmail receipt and a visible two-browser demonstration.** Requirements 1–3 remain the compatibility baseline. The [automated verification report](docs/verification/2026-11-18-requirement-4.md) covers broker/failure/security checks; the [live Gmail/browser report](docs/verification/2026-11-18-requirement-4-live.md) records external inbox arrival, no-refresh GUI updates, permissions, reconnect recovery and observed timings. The [fresh production-image verification](docs/verification/2026-11-18-clean-image-build.md) also passes; course/team sign-off remains separate.
+
+Sources: the [12-slide lecture](docs/requirements/requirement-4.md), cited as **R4**, and the separately translated [interview checklist](docs/requirements/requirement-4-interview.md), cited by **I4** identifiers. Source filenames and SHA-256 hashes are recorded in those conversions. The image agrees with the lecture and makes the interview demonstrations explicit.
+
+Implementation choices and recovery contracts are detailed in the [requirement 4 implementation design](docs/design/requirement-4-implementation.md). The selected approach is RabbitMQ in Docker, explicit AMQP consumers, separate mail and real-time workers, Laravel Reverb, and a project-only Gmail SMTP account. Stable dependencies and broker image are pinned in the manifests. The configured project mailbox and live external-mail/two-browser path have now been verified in both isolated source-mounted and freshly built image-only Compose stacks.
+
+### Course obligations and acceptance criteria
+
+| ID | Course obligation | Acceptance evidence to collect | Source |
+| --- | --- | --- | --- |
+| R4-01 | Publish an order-created event through RabbitMQ and respond without waiting for background email | Save a valid order, publish the message in the normal healthy-broker path, and return the existing order-created response while email processing remains stopped or delayed | R4 slides 5–6; I4-01 |
+| R4-02 | An independent worker sends a real confirmation email through an external service | A separate worker process consumes the order event; a controlled recipient receives a real email containing the correct order identity/details; mail credentials come from configuration | R4 slides 6–7; I4-02 |
+| R4-03 | Worker failure does not lose messages; acknowledge only after successful processing | Stop the worker before delivery and also terminate it with an unacknowledged message; pending work remains recoverable and is processed after restart | R4 slide 7; I4-03, I4-D1 |
+| R4-04 | Retry failed delivery and isolate permanent failures in a DLQ | Transient external-mail failure retries and later succeeds; a permanently failing message reaches a separate inspectable DLQ after a documented bounded retry policy; healthy messages keep progressing | R4 slide 7; I4-03 |
+| R4-05 | Use WebSocket server push through an existing server | Two open browsers receive pushed updates; inspect a genuine WebSocket connection/event; normal live updates require neither manual refresh nor periodic polling | R4 slide 8; I4-04–05 |
+| R4-06 | The order owner sees order-status changes immediately | With the customer tracking their order, an administrator changes its status and the customer page updates without reload | R4 slides 9–11; I4-04, I4-D3 |
+| R4-07 | Administrators see newly created orders immediately | An already-open admin dashboard receives and renders a new customer order without reload; email-worker stoppage does not block the update | R4 slides 9–11; I4-05, I4-D2 |
+| R4-08 | Authenticate and authorize both channel types | Owner may subscribe to their order; a different customer and a guest cannot. Only current administrators may subscribe to the admin channel or enter the admin dashboard | R4 slide 9; I4-04–06 |
+
+RabbitMQ is explicitly named, so a Laravel database/Redis queue alone is insufficient. The worker must be independent of the HTTP request, but the source does not require another language or a new domain service for it. Reverb, Soketi and other Pusher-compatible servers are permitted examples; one existing server is sufficient and a custom WebSocket server is explicitly discouraged. The exact server, RabbitMQ adapter, mail provider, channel/event names, retry counts and delays are not prescribed by the source. Pin selected runtime/dependency versions in manifests when implementation begins.
+
+### Repository design constraints and reliability safeguards
+
+The following are repository decisions derived from the course goals and existing architecture, not additional claims about what the professor explicitly prescribed:
+
+- **Domain ownership:** retain Users, Products, Orders and Notifications. Orders owns checkout/status changes and emits immutable committed facts through its `PublicApi`. Notifications owns confirmation-mail handling and user-facing event delivery. Resolve recipients/roles through Users' public interfaces. Worker and WebSocket-server processes do not justify foreign model imports or another domain module. Keep the documented module dependency graph acyclic.
+- **Preserve checkout authority:** inventory reservation and order persistence stay synchronous and atomic/compensated as already specified. Do not move stock reservation, pricing, authorization or product-deletion guards to the email queue. Customer identity, recipient identity and prices remain server-derived. Preserve `POST /orders` success as HTTP 201 and existing error/ownership contracts; async email is not a new order status.
+- **Publish committed data reliably:** publish only committed orders/status transitions. A local event dispatched after commit is not itself durable. Use a durable publication intent/outbox or an equivalent recovery mechanism so a crash between SQL commit and RabbitMQ publication cannot silently lose the email event. In the normal healthy path, RabbitMQ publication precedes the order-created response as shown on slide 6. The chosen broker-outage policy returns the committed order normally and retains its outbox entry for relay recovery (see the implementation design); never claim an order failed solely because a post-commit notification failed, or create a second order on notification retry.
+- **Recoverable queue processing:** use durable RabbitMQ topology/messages, confirmed publication and manual acknowledgements. A successful email delivery is acknowledged after the external provider accepts the send. Worker death before acknowledgement must permit redelivery. Retry transient failures with bounded attempts and delay/backoff, then durably dead-letter terminal failures; do not continuously requeue a poison message or acknowledge and discard it. Expose enough redacted evidence to inspect attempts, acknowledgements and DLQ contents.
+- **Redelivery and side effects:** assign stable event/delivery identities and track processing so duplicate broker deliveries do not repeat avoidable side effects. Document the ambiguity if the external email service accepts a send but the worker dies before recording success/acknowledging. Do not promise exactly-once inbox delivery without provider-level support. Email failures do not reverse a committed purchase or release its stock.
+- **Independent delivery paths:** stopping the confirmation-email worker must not prevent order creation, the admin new-order update, or the customer's status update. Do not place mail and essential real-time delivery behind the same blocked consumer. Existing database notifications/read-state behavior must remain available.
+- **Private real-time data:** provide two logical channel types: an order-specific channel restricted to its owner and an admin channel restricted to administrators. Authenticate subscription requests using the existing JWT/revocation contract and authoritative ownership/role reads on primary. Guessing a channel name or hiding a control in JavaScript cannot grant access. Broker/mail credentials stay server-side; public WebSocket connection settings must not expose signing secrets.
+- **Committed state in the browser:** update the existing GUI's admin order view and customer order tracking/detail view from committed event data. Prevent duplicate/older events from inserting duplicate cards or reverting a newer status. When reconnecting, reauthenticate and reconcile against an authorized current snapshot. A replica-lagged refetch must not erase a just-received order/status update. Live normal operation is push-based; reconnect catch-up is not a substitute for it.
+- **Deployment and verification:** add broker, worker and chosen WebSocket server configuration without breaking the normal requirements 1–3 deployment. Keep secrets outside tracked files. Use the selected project-only Gmail account with a controlled recipient; the implementation design defines bounded retries and explicit DLQ replay; real sending, dependency downloads and service demonstrations need the applicable task authorization. Authorized disposable local service checks are recorded below; the authorized controlled external-mail test is recorded in the live verification report.
+
+### Interview demonstration gate
+
+Use disposable orders and a controlled real mailbox. Record order IDs, event/delivery IDs, queue/worker observations, redacted mail-provider evidence and browser results. Never retain credentials, JWTs or unrelated mailbox content.
+
+| Demo | Procedure | Required observations |
+| --- | --- | --- |
+| D4-01: worker stopped | Stop only the mail consumer; keep RabbitMQ, web/core, Inventory and real-time delivery available. Place several valid orders | Each order returns 201 without waiting for email. Orders persist and corresponding pending messages/publication intents can be accounted for. New orders appear in the open admin browser immediately. No send is falsely recorded as successful |
+| D4-02: resume and recover | Restart the consumer; additionally interrupt a test delivery before acknowledgement, then restart | All pending logical confirmations are accounted for and eventually delivered through the external provider; the interrupted unacknowledged job is redelivered. Explain any provider-acceptance ambiguity rather than hiding possible duplicates |
+| D4-03: transient and permanent failure | Make one delivery fail transiently and recover, and another fail through the retry limit | The first retries and succeeds; the second appears in the real RabbitMQ DLQ with its failure history. A later healthy message still succeeds. Document safe inspection/replay and cleanup |
+| D4-04: two-browser live loop | Keep a customer order-tracking page and an admin dashboard open. Customer places an order; admin then approves/completes it using the existing lifecycle | Correct new order appears on admin screen; correct customer's status changes immediately. Neither page is refreshed and neither depends on repeated status polling. Mail-worker stoppage does not block either direction |
+| D4-05: forbidden subscriptions | Use owner A, another customer B, a guest, an administrator and a non-admin attempting the admin channel | Owner A succeeds; B/guest cannot subscribe to A's order or receive its payload; only the administrator enters/subscribes to the admin view/channel. Check backend subscription authorization, not just hidden UI |
+
+D4-01/D4-02, D4-04 and the associated ownership/role checks directly demonstrate slide 11 and the interview image. Failure injection, duplicate/reconnect handling, durable publication recovery and cache/replica interactions are repository hardening checks supporting those claims. A successful REST request, a mocked worker, `MAIL_MAILER=log`, a local mail capture, a Laravel `failed_jobs` row without a RabbitMQ DLQ, or a page changed only after refresh does not by itself satisfy this gate.
+
+Before marking requirement 4 complete, collect real RabbitMQ/external-mail/WebSocket evidence plus applicable architecture, HTTP/security and prior checkout/replica/cache regression checks. Record broker topology, consumer command, ack/retry/DLQ policy, credentials setup references, latency observations, failure outcomes, restart steps and cleanup in a dedicated verification report. “Immediately” has no numeric SLA in the supplied source: demonstrate visible updates without refresh and report measured end-to-end delays rather than inventing a course threshold.
+
+### Implementation and verification — 2026-11-18
+
+The base deployment retains synchronous database notifications with messaging disabled. The optional [real-time Compose overlay](docker-compose.realtime.yml) enables the new path; it does not change inventory authority or introduce a Node frontend server. Runtime commands, local credential setup and recovery are in the [operator guide](docs/runtime/requirement-4.md).
+
+| Area | Implemented behavior | Evidence / remaining gate |
+| --- | --- | --- |
+| Order facts | Revisioned immutable JSON event and outbox entry commit with order/lines/status; no-op status emits nothing | HTTP rollback/compensation and post-commit broker-failure tests; real gRPC last-unit regression |
+| Publication | Confirmed persistent RabbitMQ messages, explicit routing checks, short bounded publication attempt and durable relay recovery | Real broker restart/outage and relay recovery; old published outbox rows can be pruned explicitly without deleting pending work or delivery identities |
+| Mail | Independent SMTP consumer, stable delivery identity, bounded retries, redacted failure history and actual broker DLQ/replay | Real local SMTP protocol fixture, transient/permanent failure and process-death checks; actual Gmail inbox arrival verified in the live report |
+| Real-time/inbox | Separate consumer, idempotent database notification inserts and Reverb broadcasts | Real WebSocket admin/new-order and owner/status messages while mail is stopped; no mail dependency |
+| Authorization | JWT-backed subscription signing plus primary-backed JWT/role/ownership checks at each private delivery | Guest/foreign-owner/non-admin rejection; revoked, expired and demoted sockets denied; encrypted short-lived subscription credentials pruned hourly |
+| GUI | Existing static JavaScript with pinned local Pusher client; revision merge, transient subscription recovery with capped backoff, session cleanup and session-isolated primary catch-up | 19 browser-client tests pass; visible two-browser demonstration and transient-authorization recovery passed |
+| Deployment | RabbitMQ 4.4.0 digest; Reverb 1.14.0, php-amqplib 3.7.5 and Pusher 8.6.0 pinned; reusable PHP worker image | No-cache production Dockerfile builds and image-only deployment pass; real Gmail/browser recovery rerun on final artifacts |
+
+The new HTTP surface is `GET /api/v1/realtime/config` and authenticated `POST /api/v1/realtime/auth` (`socket_id`, `channel_name`, successful Pusher-format `{auth: ...}`). Order resources add integer `revision`; existing fields remain compatible. Authorized order lists/admin dashboard accept `consistent=1` for primary-backed reconnect reconciliation including enrichment. The [real-time Postman collection](docs/api/NovaCart-realtime.postman_collection.json) documents these additive contracts.
+
+Default retries are one initial attempt plus retries after 5/30/120 seconds. The disposable test overrides delays to 1/2/3 seconds and explicitly ages an interrupted SQL lease instead of waiting 90 seconds. Successful sends are acknowledged after recording provider acceptance; failed sends are acknowledged only after confirmed transfer to durable retry/DLQ work. SMTP acceptance followed by process death before recording success can still cause a duplicate; exactly-once inbox delivery is not claimed.
+
+The local technical demonstration now includes real Gmail receipt, two visible browser sessions, measured update delays and recovery after a temporary subscription-authorization outage. Fresh production images and image-only recovery are also verified in the [build report](docs/verification/2026-11-18-clean-image-build.md). Shared deployment, teammate review and per-member course obligations remain separate. Verification reports retain their practical limits and exclude credentials/customer addresses.
+
+## 8. Scope and team workflow
+
+Requirements 1–2 exclude payment providers, frontend visual polish, discounts/reviews/shipping integrations, and requirement 3 optimizations. Basic Notifications remains a required module; asynchronous/real-time delivery is implemented in the optional requirement 4 stack, with its local external-email/browser demonstration verified; shared course sign-off remains separate. Requirement 4 explicitly requires RabbitMQ; the WebSocket server and external mail vendor are choices subject to its acceptance gate. Requirements 5–6 concern scaling/load distribution and monitoring/fault tracing and have roadmap titles only.
 
 Course workflow: one Git repository, protected main branch, teammate-reviewed pull requests for every change, and at least one PR per member per requirement. Any member may be questioned about any component (R12 slide 14). Branch protection and participation require repository-host evidence, previously checked in the verification record; per-member participation remains deferred by user instruction.
 

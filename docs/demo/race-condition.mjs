@@ -77,6 +77,7 @@ try {
   const winners = results.filter((r) => r.status === 201);
   const losers = results.filter((r) => r.status === 409);
   assert.equal(winners.length, 1, 'Exactly one checkout must succeed.');
+  assert.equal(winners[0].json.data.revision, 1, 'A new order starts at revision 1.');
   assert.equal(losers.length, buyerCount - 1, 'Every other checkout must return 409.');
   for (const loser of losers) {
     assert.equal(loser.json.status, 409);
@@ -92,6 +93,7 @@ try {
   }
   assert.equal(savedOrders.length, 1, 'Exactly one order must be persisted across all new buyers.');
   assert.equal(savedOrders[0].id, winners[0].json.data.id);
+  assert.equal(savedOrders[0].revision, 1);
   assert.equal(savedOrders[0].items.length, 1);
   assert.equal(savedOrders[0].items[0].quantity, 1);
   console.log(`PASS: ${buyerCount} buyers, one 201, ${losers.length} conflicts, one persisted order, stock 0.`);
