@@ -2,6 +2,7 @@
 
 namespace App\Modules\Products\Models;
 
+use App\Support\Database\PrimaryRouteBinding;
 use Database\Factories\CategoryFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\UseFactory;
@@ -16,6 +17,8 @@ class Category extends Model
 {
     /** @use HasFactory<CategoryFactory> */
     use HasFactory;
+
+    use PrimaryRouteBinding;
 
     protected static function booted(): void
     {

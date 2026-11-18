@@ -4,6 +4,7 @@ use App\Modules\Orders\Services\OrderService;
 use App\Modules\Orders\Services\ReservationRecovery;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schedule;
 
 Artisan::command('inspire', function () {
@@ -23,3 +24,5 @@ Artisan::command('orders:recover-cancellations', function (): void {
 })->purpose('Finish durable order cancellations after inventory or database failures');
 
 Schedule::command('orders:recover-cancellations')->everyMinute();
+
+Schedule::call(fn () => DB::table('realtime_subscriptions')->where('expires_at', '<', now())->delete())->hourly();

@@ -15,6 +15,10 @@ final class SendOrderStatusNotification
 
     public function handle(OrderStatusChangedEvent $event): void
     {
+        if (config('messaging.enabled')) {
+            return; // The durable RabbitMQ consumer owns asynchronous delivery.
+        }
+
         $this->users->notify($event->order->userId, new OrderStatusChanged($event->order, $event->previousStatus));
     }
 }

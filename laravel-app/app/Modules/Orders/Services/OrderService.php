@@ -18,7 +18,7 @@ use Throwable;
  */
 final class OrderService
 {
-    public function __construct(private readonly InventoryGateway $inventory) {}
+    public function __construct(private readonly InventoryGateway $inventory, private readonly OrderEvents $events) {}
 
     public function updateStatus(Order $order, OrderStatus $newStatus): Order
     {
@@ -37,8 +37,9 @@ final class OrderService
             });
         }
         $previousStatus = null;
+        $eventId = null;
 
-        $updated = DB::transaction(function () use ($order, $newStatus, &$previousStatus): Order {
+        $updated = DB::transaction(function () use ($order, $newStatus, &$previousStatus, &$eventId): Order {
             $lockedOrder = Order::query()
                 ->lockForUpdate()
                 ->findOrFail($order->getKey());
@@ -63,7 +64,8 @@ final class OrderService
             }
 
             $previousStatus = $lockedOrder->status;
-            $lockedOrder->update(['status' => $newStatus]);
+            $lockedOrder->forceFill(['status' => $newStatus, 'revision' => $lockedOrder->revision + 1])->save();
+            $eventId = $this->events->record($lockedOrder, 'order.status_changed', $previousStatus->value);
             if ($newStatus === OrderStatus::Cancelled) {
                 DB::table('order_cancellations')->where('order_id', $lockedOrder->id)
                     ->update(['state' => 'completed', 'updated_at' => now()]);
@@ -74,6 +76,7 @@ final class OrderService
 
         // Announce only after the transaction committed and only on a real change.
         if ($previousStatus !== null) {
+            $this->events->publish($eventId);
             OrderStatusChanged::dispatch($updated->summary(), $previousStatus->value);
         }
 

@@ -2,6 +2,7 @@
 
 namespace App\Modules\Products\Models;
 
+use App\Support\Database\PrimaryRouteBinding;
 use Database\Factories\ProductFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Scope;
@@ -26,6 +27,8 @@ class Product extends Model
 {
     /** @use HasFactory<ProductFactory> */
     use HasFactory;
+
+    use PrimaryRouteBinding;
 
     /*
      * A deleted product that is still referenced by past orders stays in the

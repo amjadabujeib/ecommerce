@@ -141,3 +141,12 @@ docker compose stop inventory
 # Verify API responses return HTTP 503 Service Unavailable gracefully
 docker compose start inventory
 ```
+
+
+### Requirement 4: RabbitMQ, email and real-time updates
+
+The optional [requirement 4 runtime guide](docs/runtime/requirement-4.md) covers RabbitMQ, independent mail/real-time consumers, Reverb, local Gmail configuration and interview recovery steps. See [SPEC.md](SPEC.md#7-requirement-4--asynchronous-queues-and-real-time) for acceptance criteria, [verification evidence](docs/verification/2026-11-18-requirement-4.md) for local results, and the [real-time Postman collection](docs/api/NovaCart-realtime.postman_collection.json) for subscription/catch-up contracts. Real Gmail receipt and the visible two-browser demonstration passed in an isolated local stack; see the [live evidence](docs/verification/2026-11-18-requirement-4-live.md).
+
+Teammates can follow [setup and shared-email testing](docs/runtime/teammate-testing.md). It includes a root `.env.example`, fresh Dockerfile builds, separate admin/customer browser sessions and use of the same project Gmail sender without putting credentials in Git.
+
+Fresh production Dockerfile builds and the image-only Gmail/browser recovery demonstration pass; see the [build verification](docs/verification/2026-11-18-clean-image-build.md) for artifact IDs and platform limits.

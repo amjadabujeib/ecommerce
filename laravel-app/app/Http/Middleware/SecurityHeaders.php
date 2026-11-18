@@ -32,7 +32,7 @@ final class SecurityHeaders
         }
 
         if ($request->is('/')) {
-            $response->headers->set('Content-Security-Policy', "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'");
+            $response->headers->set('Content-Security-Policy', "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'".$this->socketOrigin()."; base-uri 'none'; form-action 'self'; frame-ancestors 'none'");
         }
 
         if ($request->isSecure()) {
@@ -42,5 +42,20 @@ final class SecurityHeaders
         $response->headers->remove('X-Powered-By');
 
         return $response;
+    }
+
+    private function socketOrigin(): string
+    {
+        if (! config('messaging.enabled')) {
+            return '';
+        }
+        $host = config('realtime.public_host') ?: parse_url((string) config('app.url'), PHP_URL_HOST);
+        $scheme = config('realtime.public_scheme') === 'https' ? 'wss' : 'ws';
+        $port = config('realtime.public_port') ?: parse_url((string) config('app.url'), PHP_URL_PORT);
+        if (! is_string($host) || ! preg_match('/^[a-zA-Z0-9.\-]+$/D', $host)) {
+            return '';
+        }
+
+        return ' '.$scheme.'://'.$host.($port ? ':'.(int) $port : '');
     }
 }

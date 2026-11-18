@@ -4,6 +4,7 @@ namespace App\Modules\Users\Models;
 
 use App\Modules\Users\Enums\UserRole;
 use App\Modules\Users\PublicApi\Actor;
+use App\Support\Database\PrimaryRouteBinding;
 use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
@@ -18,10 +19,12 @@ use PHPOpenSourceSaver\JWTAuth\Contracts\JWTSubject;
 #[Fillable(['username', 'email', 'password'])]
 #[Hidden(['password', 'remember_token', 'read_fence'])]
 #[UseFactory(UserFactory::class)]
-class User extends Authenticatable implements JWTSubject, Actor
+class User extends Authenticatable implements Actor, JWTSubject
 {
     /** @use HasFactory<UserFactory> */
     use HasFactory, Notifiable;
+
+    use PrimaryRouteBinding;
 
     /**
      * The role is intentionally kept out of the fillable list. Its default is

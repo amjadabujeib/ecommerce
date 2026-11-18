@@ -1,4 +1,5 @@
 import {createApiClient} from './api-client.js';
+import {createRealtimeClient, createPusherSocket, createOrderState, createCatchupCoordinator} from './realtime.js';
 const $ = selector => document.querySelector(selector);
 let token = sessionStorage.getItem('novacart-token');
 let user = null;
@@ -12,15 +13,24 @@ let lastCatalog = sessionStorage.getItem('novacart-last-catalog') || 'shop';
 let pendingAdd = null;
 let returnAfterAuth = null;
 let noticeTimer;
+let realtime;
+let orderRequest = 0;
+let dashboardRequest = 0;
+let activeOrderView = null;
+const orderState = createOrderState();
+const liveCatchup = createCatchupCoordinator({load: loadLiveOrders, onError: error => notice(error.message, true)});
 const apiClient = createApiClient({
     initialToken: token,
     onToken(value) {
         token = value;
         if (value) sessionStorage.setItem('novacart-token', value);
         else sessionStorage.removeItem('novacart-token');
+        if (value) realtime?.rotate();
+        else realtime?.stop();
     },
     onSessionEnded() { resetPrivateViews(); user = null; updateIdentity(); },
 });
+realtime = createRealtimeClient({request: (...args) => apiClient.request(...args), createSocket: createPusherSocket, onError: error => notice(error.message, true)});
 const scrollPositions = new Map();
 const money = value => new Intl.NumberFormat('en-US', {style: 'currency', currency}).format(Number(value));
 const node = (tag, text, className) => {
@@ -66,6 +76,12 @@ async function run(callback, button) {
 }
 function resetPrivateViews() {
     identityVersion++;
+    liveCatchup.reset();
+    realtime?.stop();
+    orderState.clear();
+    activeOrderView = null;
+    orderRequest++;
+    dashboardRequest++;
     for (const id of ['cart-content', 'order-list', 'order-pages', 'notification-list', 'notification-pages', 'admin-orders', 'admin-order-pages', 'admin-products', 'admin-product-pages', 'categories', 'dashboard']) {
         document.getElementById(id)?.replaceChildren();
     }
@@ -98,6 +114,7 @@ async function cartCount() {
 }
 function activate(view) {
     currentView = view;
+    if (view !== 'orders' && view !== 'admin') realtime.stop();
     document.querySelectorAll('.view').forEach(element => { element.hidden = element.id !== view; });
     document.querySelectorAll('[data-view]').forEach(element => {
         const active = element.dataset.view === view || (view === 'product' && element.dataset.view === 'catalog');
@@ -259,11 +276,18 @@ async function cart() {
     }, 'text-button'));
     layout.append(items, summary); content.append(layout);
 }
-async function orders(page = 1, isAdmin = false) {
+async function orders(page = 1, isAdmin = false, consistent = false) {
     const identity = identityVersion;
-    const result = await api(`${isAdmin ? '/admin' : ''}/orders?page=${page}`);
-    if (identity !== identityVersion) return;
-    const cards = result.data.map(order => {
+    const request = ++orderRequest;
+    const path = location.hash;
+    const result = await api(`${isAdmin ? '/admin' : ''}/orders?page=${page}${consistent ? '&consistent=1' : ''}`);
+    if (identity !== identityVersion || request !== orderRequest || path !== location.hash || currentView !== (isAdmin ? 'admin' : 'orders')) return;
+    renderOrders(result, page, isAdmin);
+}
+function renderOrders(result, page, isAdmin) {
+    activeOrderView = {result, page, isAdmin, path: location.hash, identity: identityVersion};
+    const rows = orderState.merge(result.data);
+    const cards = rows.map(order => {
         const card = node('article', undefined, 'panel order-card'); const heading = node('div', undefined, 'section-heading');
         heading.append(node('h3', `Order #${order.id}`), node('span', order.status_label, `status status-${order.status}`));
         card.append(heading, node('p', `${new Date(order.created_at).toLocaleDateString()} · Total: ${money(order.total_amount)}`));
@@ -283,6 +307,34 @@ async function orders(page = 1, isAdmin = false) {
     });
     $(isAdmin ? '#admin-orders' : '#order-list').replaceChildren(...(cards.length ? cards : [empty('No orders yet. Your orders will appear here after checkout.')]));
     pagination(isAdmin ? '#admin-order-pages' : '#order-pages', result, next => go(`${isAdmin ? 'admin/orders' : 'orders'}?page=${next}`));
+    watchOrders(isAdmin ? ['private-admin.orders'] : rows.map(order => `private-orders.${order.id}`));
+}
+function watchOrders(channels) {
+    if (!user) return;
+    void realtime.watch({
+        identity: identityVersion, channels,
+        onEvent(event) {
+            if (orderState.apply(event)) {
+                if (activeOrderView?.identity === identityVersion && activeOrderView.path === location.hash) {
+                    renderOrders(activeOrderView.result, activeOrderView.page, activeOrderView.isAdmin);
+                }
+                void reloadLiveOrders();
+            }
+        },
+        onCatchup: reloadLiveOrders,
+    });
+}
+function reloadLiveOrders() {
+    return liveCatchup.request();
+}
+async function loadLiveOrders() {
+    if (!user) return;
+    const path = location.hash.replace(/^#\/?/, '');
+    const [pathname, query = ''] = path.split('?');
+    const page = Number(new URLSearchParams(query).get('page')) || 1;
+    if (pathname === 'orders') await orders(page, false, true);
+    else if (pathname === 'admin/orders') await orders(page, true, true);
+    else if (pathname === 'admin/overview' || pathname === 'admin') await admin('overview', 1, true);
 }
 async function notifications(page = 1) {
     const identity = identityVersion;
@@ -341,14 +393,18 @@ async function adminProducts(page = 1) {
     $('#admin-products').replaceChildren(...(result.data.length ? result.data.map(item => productCard(item, true)) : [empty('No products yet. Use Add product to create your first listing.')]));
     pagination('#admin-product-pages', result, next => go(`admin/products?page=${next}`));
 }
-async function admin(tab = 'overview', page = 1) {
+async function admin(tab = 'overview', page = 1, consistent = false) {
+    if (tab === 'overview' || tab === 'orders') watchOrders(['private-admin.orders']);
+    else realtime.stop();
     const identity = identityVersion;
     const panels = {overview: '#admin-overview', products: '#admin-product-panel', categories: '#admin-category-panel', orders: '#admin-order-panel'};
     if (!panels[tab]) tab = 'overview';
     for (const [name, selector] of Object.entries(panels)) $(selector).hidden = name !== tab;
     document.querySelectorAll('[data-admin-tab]').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.adminTab === tab)));
     if (tab === 'overview') {
-        const {data} = await api('/admin/dashboard'); if (identity !== identityVersion) return; currency = data.currency;
+        const request = ++dashboardRequest, path = location.hash;
+        const {data} = await api(`/admin/dashboard${consistent ? '?consistent=1' : ''}`);
+        if (identity !== identityVersion || request !== dashboardRequest || path !== location.hash) return; currency = data.currency;
         $('#dashboard').replaceChildren(...[
             ['Products', data.total_products], ['Orders', data.total_orders], ['Completed sales', money(data.total_sales)], ['Available units', data.stock_units ?? 'Unavailable'],
         ].map(([label, value]) => { const card = node('div', undefined, 'panel stat'); card.append(node('p', label), node('strong', value)); return card; }));

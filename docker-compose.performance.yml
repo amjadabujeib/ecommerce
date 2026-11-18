@@ -51,6 +51,8 @@ services:
       PERFORMANCE_ENABLED: "true"
       READ_REPLICA_ENABLED: "true"
       CATALOG_CACHE_ENABLED: "true"
+      CATALOG_CACHE_STORE: catalog
+      REDIS_CATALOG_DB: ${REDIS_CATALOG_DB:-2}
       DB_READ_HOST: db-replica
       DB_READ_PASSWORD: ${DB_READ_PASSWORD:-novacart_read}
       REDIS_CLIENT: predis

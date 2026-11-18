@@ -5,6 +5,9 @@ namespace Tests\Feature\Products;
 use App\Modules\Products\Models\Category;
 use App\Modules\Products\Models\Product;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Tests\TestCase;
 
 final class CatalogPerformanceTest extends TestCase
@@ -52,5 +55,50 @@ final class CatalogPerformanceTest extends TestCase
         $this->getJson(route('home'))->assertOk()->assertHeader('X-Catalog-Cache', 'miss');
         Product::factory()->withStock(1)->create(['title' => 'Second']);
         $this->getJson(route('home'))->assertOk()->assertHeader('X-Catalog-Cache', 'miss')->assertJsonCount(2, 'data');
+    }
+
+    public function test_stable_cache_entries_are_deleted_after_bulk_changes(): void
+    {
+        $product = Product::factory()->withStock(5)->create(['title' => 'Before bulk edit']);
+        $this->getJson(route('home'))->assertOk();
+        $this->getJson(route('products.show', $product))->assertOk();
+        $key = 'catalog:detail:'.hash('sha256', json_encode(['id' => $product->id]));
+        $store = Cache::store('array');
+        $this->assertNotNull($store->get($key));
+        Product::query()->whereKey($product->id)->update(['title' => 'After bulk edit']);
+        $this->assertTrue((bool) DB::table('catalog_cache_state')->value('needs_invalidation'));
+        $this->getJson(route('home'))->assertOk()->assertHeader('X-Catalog-Cache', 'miss');
+        $this->assertNull($store->get($key));
+        $this->getJson(route('products.show', $product))->assertOk()->assertJsonPath('data.title', 'After bulk edit');
+        $this->assertFalse(Schema::hasTable('catalog_versions'));
+    }
+
+    public function test_rolled_back_product_change_keeps_valid_cache(): void
+    {
+        $product = Product::factory()->withStock(5)->create(['title' => 'Unchanged']);
+        $this->getJson(route('products.show', $product))->assertOk();
+        DB::beginTransaction();
+        Product::query()->whereKey($product->id)->update(['title' => 'Rolled back']);
+        DB::rollBack();
+        $this->getJson(route('products.show', $product))->assertOk()
+            ->assertHeader('X-Catalog-Cache', 'hit')->assertJsonPath('data.title', 'Unchanged');
+    }
+
+    public function test_shared_redis_store_is_rejected_without_clearing_it(): void
+    {
+        $product = Product::factory()->withStock(5)->create();
+        config(['performance.cache_store' => 'redis']);
+        $this->getJson(route('products.show', $product))->assertOk()->assertHeader('X-Catalog-Cache', 'unavailable');
+    }
+
+    public function test_redis_url_cannot_hide_a_shared_catalog_database(): void
+    {
+        $product = Product::factory()->withStock(5)->create();
+        config([
+            'performance.cache_store' => 'catalog',
+            'database.redis.default.url' => 'redis://127.0.0.1:6379/2',
+            'database.redis.catalog.database' => '2',
+        ]);
+        $this->getJson(route('products.show', $product))->assertOk()->assertHeader('X-Catalog-Cache', 'unavailable');
     }
 }

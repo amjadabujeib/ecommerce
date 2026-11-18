@@ -2,7 +2,7 @@
   "info": {
     "name": "NovaCart: requirement 3 conditional product reads",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
-    "description": "Requires the performance Compose overlay. Select an existing productId and run both requests in order while the catalog and inventory stay unchanged. Product or stock mutations change the ETag; verify-consistency.mjs exercises that case under real replica lag."
+    "description": "Requires the performance Compose overlay. Select an existing productId and run both requests in order while the catalog and inventory stay unchanged. Product or stock mutations change the ETag; verify-consistency.mjs exercises that case under real replica lag. verify-cache-routing.mjs additionally verifies stable Redis keys, physical deletion, operation-based database routing, maintenance-response consistency, lost-lock fill rejection and outage recovery in a disposable stack."
   },
   "variable": [
     {"key": "baseUrl", "value": "http://localhost:8080/api/v1"},

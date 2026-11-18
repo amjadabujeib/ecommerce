@@ -1,0 +1,358 @@
+{
+  "info": {
+    "name": "NovaCart: requirement 4 private real-time channels",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": "Use the requirement 4 Compose overlay and disposable users/orders. Set tokens from the existing authentication collection and an owned orderId. socketId is the socket_id from a genuine Reverb pusher:connection_established message. Subscription signing is HTTP; inspect actual pushed messages in two GUI browsers. This collection does not send real email or prove worker/retry/DLQ recovery; see docs/demo/verify-requirement-4.mjs and docs/runtime/requirement-4.md. Order resources add revision (initially 1, incremented only on real status changes); consistent=1 requests primary-backed authorized catch-up including relationships."
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8080/api/v1"
+    },
+    {
+      "key": "customerToken",
+      "value": ""
+    },
+    {
+      "key": "otherCustomerToken",
+      "value": ""
+    },
+    {
+      "key": "adminToken",
+      "value": ""
+    },
+    {
+      "key": "orderId",
+      "value": "1"
+    },
+    {
+      "key": "socketId",
+      "value": ""
+    }
+  ],
+  "item": [
+    {
+      "name": "Public WebSocket settings",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/realtime/config",
+        "description": ""
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+              "pm.test('Enabled', () => pm.expect(pm.response.json().data.enabled).to.equal(true));",
+              "pm.test('No signing secret', () => pm.expect(pm.response.json().data).not.to.have.property('secret'));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Owner authorizes tracking subscription",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{customerToken}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/realtime/auth",
+        "description": "",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"socket_id\": \"{{socketId}}\",\n  \"channel_name\": \"private-orders.{{orderId}}\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+              "pm.test('Signed subscription', () => pm.expect(pm.response.json().auth).to.be.a('string'));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Other customer denied tracking subscription",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{otherCustomerToken}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/realtime/auth",
+        "description": "",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"socket_id\": \"{{socketId}}\",\n  \"channel_name\": \"private-orders.{{orderId}}\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('HTTP 403', () => pm.response.to.have.status(403));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Guest denied private subscription",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/realtime/auth",
+        "description": "",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"socket_id\": \"{{socketId}}\",\n  \"channel_name\": \"private-orders.{{orderId}}\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('HTTP 401', () => pm.response.to.have.status(401));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Administrator authorizes new-order channel",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{adminToken}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/realtime/auth",
+        "description": "",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"socket_id\": \"{{socketId}}\",\n  \"channel_name\": \"private-admin.orders\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('HTTP 200', () => pm.response.to.have.status(200));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Customer denied admin channel",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{customerToken}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/realtime/auth",
+        "description": "",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"socket_id\": \"{{socketId}}\",\n  \"channel_name\": \"private-admin.orders\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('HTTP 403', () => pm.response.to.have.status(403));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Owner primary catch-up",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{customerToken}}"
+          }
+        ],
+        "url": "{{baseUrl}}/orders?page=1&consistent=1",
+        "description": ""
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+              "pm.test('Order revisions', () => pm.response.json().data.forEach(order => pm.expect(order.revision).to.be.a('number').and.at.least(1)));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Admin primary catch-up",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{adminToken}}"
+          }
+        ],
+        "url": "{{baseUrl}}/admin/orders?page=1&consistent=1",
+        "description": ""
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+              "pm.test('Order revisions', () => pm.response.json().data.forEach(order => pm.expect(order.revision).to.be.a('number').and.at.least(1)));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Admin dashboard primary catch-up",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{adminToken}}"
+          }
+        ],
+        "url": "{{baseUrl}}/admin/dashboard?consistent=1",
+        "description": ""
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('HTTP 200', () => pm.response.to.have.status(200));"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

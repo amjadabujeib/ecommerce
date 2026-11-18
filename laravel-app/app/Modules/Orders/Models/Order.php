@@ -5,6 +5,7 @@ namespace App\Modules\Orders\Models;
 use App\Modules\Orders\Enums\OrderStatus;
 use App\Modules\Orders\Policies\OrderPolicy;
 use App\Modules\Orders\PublicApi\OrderSummary;
+use App\Support\Database\PrimaryRouteBinding;
 use Database\Factories\OrderFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\UseFactory;
@@ -21,6 +22,10 @@ class Order extends Model
     /** @use HasFactory<OrderFactory> */
     use HasFactory;
 
+    use PrimaryRouteBinding;
+
+    protected $attributes = ['revision' => 1];
+
     /**
      * @return array<string, string>
      */
@@ -28,6 +33,7 @@ class Order extends Model
     {
         return [
             'total_amount' => 'decimal:2',
+            'revision' => 'integer',
             'status' => OrderStatus::class,
         ];
     }
