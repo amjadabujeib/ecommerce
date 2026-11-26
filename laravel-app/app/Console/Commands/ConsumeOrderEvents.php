@@ -39,6 +39,16 @@ final class ConsumeOrderEvents extends Command
                         EventEnvelope::validate($event);
                     } catch (JsonException|InvalidArgumentException $error) {
                         $broker->publishToQueue(['quarantined_body_base64' => base64_encode($message->getBody())], RabbitBroker::queue($path).'.dlq', 0, ['failure_type' => get_class($error)]);
+                      $plan = $ledger->deliver($event, $path, $generation, fn () => $delivery->{$path}($event));
+                    if ($plan['action'] !== 'ack') {
+                        $destination = RabbitBroker::queue($path).($plan['action'] === 'dlq' ? '.dlq' : '.retry.'.$plan['delay']);
+                        $broker->publishToQueue($event, $destination, $plan['generation'], ['failure_type' => $plan['error_type'], 'failure_history' => json_encode($plan['failure_history'], JSON_THROW_ON_ERROR)]);
+                        $ledger->transferred($event, $path, $generation, $plan);
+                        Log::warning('Order delivery transferred.', ['worker' => config('app.instance') ?: gethostname(), 'event_id' => $event['event_id'], 'path' => $path, 'state' => $plan['action'], 'generation' => $plan['generation'], 'error_type' => $plan['error_type']]);
+                    } else {
+                        Log::info('Order event processed.', ['worker' => config('app.instance') ?: gethostname(), 'path' => $path, 'event_id' => $event['event_id'], 'order_id' => $event['order_id']]);
+                    }
+                    $message->ack();
                         $message->ack();
                         Log::warning('Malformed order event quarantined.', ['path' => $path, 'error_type' => get_class($error)]);
 

@@ -1,0 +1,228 @@
+# Optional requirement 5 overlay (Scalability & Load Distribution).
+# Run with:
+#   docker compose -p novacart-scale \
+#     -f docker-compose.yml \
+#     -f docker-compose.realtime.yml \
+#     -f docker-compose.scale.yml up -d --build
+
+x-scaled-app-env: &scaled-app-env
+  APP_KEY: ${APP_KEY:-}
+  JWT_SECRET: ${JWT_SECRET:-}
+  CACHE_STORE: ${CACHE_STORE:-database}
+  APP_NAME: NovaCart
+  APP_ENV: production
+  APP_DEBUG: "false"
+  APP_URL: ${APP_URL:-http://localhost:8080}
+  APP_BOOTSTRAP_MODE: serve
+  APP_MAINTENANCE_DRIVER: cache
+  APP_MAINTENANCE_STORE: database
+  LOG_CHANNEL: stderr
+  DB_CONNECTION: pgsql
+  DB_HOST: db
+  DB_PORT: 5432
+  DB_DATABASE: novacart
+  DB_USERNAME: novacart
+  DB_PASSWORD: ${DB_PASSWORD:-novacart}
+  SESSION_DRIVER: database
+  QUEUE_CONNECTION: sync
+  JWT_TTL: ${JWT_TTL:-60}
+  CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-*}
+  ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@example.com}
+  ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+  INVENTORY_GRPC_ADDRESS: inventory:50051
+  INVENTORY_TIMEOUT_MS: ${INVENTORY_TIMEOUT_MS:-2000}
+  # Messaging / Realtime (matching docker-compose.realtime.yml)
+  MESSAGING_ENABLED: "true"
+  RABBITMQ_HOST: rabbitmq
+  RABBITMQ_PORT: 5672
+  RABBITMQ_VHOST: novacart
+  RABBITMQ_USER: novacart
+  RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:?Set a local RabbitMQ password}
+  BROADCAST_CONNECTION: reverb
+  REVERB_APP_ID: novacart
+  REVERB_APP_KEY: ${REVERB_APP_KEY:-novacart-local}
+  REVERB_APP_SECRET: ${REVERB_APP_SECRET:?Set a local Reverb signing secret}
+  REVERB_HOST: reverb
+  REVERB_PORT: 8081
+  REVERB_SCHEME: http
+  REVERB_ALLOWED_ORIGINS: ${REVERB_ALLOWED_ORIGINS:-localhost,127.0.0.1}
+  REVERB_PUBLIC_HOST: ${REVERB_PUBLIC_HOST:-localhost}
+  REVERB_PUBLIC_PORT: ${APP_PORT:-8080}
+  REVERB_PUBLIC_SCHEME: ${REVERB_PUBLIC_SCHEME:-http}
+  # Optional Performance flags (active when docker-compose.performance.yml is also attached)
+  PERFORMANCE_ENABLED: ${PERFORMANCE_ENABLED:-false}
+  READ_REPLICA_ENABLED: ${READ_REPLICA_ENABLED:-false}
+  CATALOG_CACHE_ENABLED: ${CATALOG_CACHE_ENABLED:-false}
+  CATALOG_CACHE_STORE: catalog
+  REDIS_CATALOG_DB: ${REDIS_CATALOG_DB:-2}
+  DB_READ_HOST: db-replica
+  DB_READ_PASSWORD: ${DB_READ_PASSWORD:-novacart_read}
+  REDIS_CLIENT: predis
+  REDIS_HOST: redis
+
+x-mail-worker-env: &mail-worker-env
+  <<: *scaled-app-env
+  APP_BOOTSTRAP_MODE: worker
+  MAIL_MAILER: ${MAIL_MAILER:-smtp}
+  MAIL_SCHEME: ${MAIL_SCHEME:-smtps}
+  MAIL_HOST: ${MAIL_HOST:-smtp.gmail.com}
+  MAIL_PORT: ${MAIL_PORT:-465}
+  MAIL_USERNAME: ${MAIL_USERNAME:-}
+  MAIL_PASSWORD: ${MAIL_PASSWORD:-}
+  MAIL_FROM_ADDRESS: ${MAIL_FROM_ADDRESS:-}
+  MAIL_FROM_NAME: NovaCart
+  MAIL_TIMEOUT: 15
+  MAIL_REQUIRE_ALLOWLIST: ${MAIL_REQUIRE_ALLOWLIST:-true}
+  MAIL_RECIPIENT_ALLOWLIST: ${MAIL_RECIPIENT_ALLOWLIST:-}
+
+services:
+  # Runs once before all replicas: atomic secret generation, migrations, and seeding.
+  app-init:
+    platform: linux/amd64
+    image: localhost/novacart-core:local
+    pull_policy: never
+    restart: "no"
+    environment:
+      <<: *scaled-app-env
+      APP_BOOTSTRAP_MODE: init
+    volumes:
+      - storage:/var/www/html/storage
+    depends_on:
+      db:
+        condition: service_healthy
+      inventory:
+        condition: service_healthy
+
+  app:
+    environment:
+      APP_BOOTSTRAP_MODE: serve
+      APP_INSTANCE: app-1
+      APP_MAINTENANCE_DRIVER: cache
+      APP_MAINTENANCE_STORE: database
+    depends_on:
+      app-init:
+        condition: service_completed_successfully
+      db:
+        condition: service_healthy
+      inventory:
+        condition: service_healthy
+
+  app-2:
+    platform: linux/amd64
+    image: localhost/novacart-core:local
+    pull_policy: never
+    restart: unless-stopped
+    environment:
+      <<: *scaled-app-env
+      APP_INSTANCE: app-2
+    volumes:
+      - storage:/var/www/html/storage
+    depends_on:
+      app-init:
+        condition: service_completed_successfully
+      db:
+        condition: service_healthy
+      inventory:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "php", "-r", "exit(@fsockopen('127.0.0.1', 9000) ? 0 : 1);"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  app-3:
+    platform: linux/amd64
+    image: localhost/novacart-core:local
+    pull_policy: never
+    restart: unless-stopped
+    environment:
+      <<: *scaled-app-env
+      APP_INSTANCE: app-3
+    volumes:
+      - storage:/var/www/html/storage
+    depends_on:
+      app-init:
+        condition: service_completed_successfully
+      db:
+        condition: service_healthy
+      inventory:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "php", "-r", "exit(@fsockopen('127.0.0.1', 9000) ? 0 : 1);"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  web:
+    volumes:
+      - storage:/var/www/html/storage:ro
+      - ./laravel-app/docker/nginx/load-balancer.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      app:
+        condition: service_healthy
+      app-2:
+        condition: service_healthy
+      app-3:
+        condition: service_healthy
+      messaging-setup:
+        condition: service_completed_successfully
+
+  # 3 workers sharing the exact same RabbitMQ queue (novacart.mail.v1) with prefetch=1
+  mail-worker:
+    environment:
+      APP_BOOTSTRAP_MODE: worker
+      APP_INSTANCE: mail-worker-1
+
+  mail-worker-2:
+    platform: linux/amd64
+    image: localhost/novacart-core:local
+    pull_policy: never
+    init: true
+    stop_signal: SIGTERM
+    restart: unless-stopped
+    environment:
+      <<: *mail-worker-env
+      APP_INSTANCE: mail-worker-2
+    volumes:
+      - storage:/var/www/html/storage
+    command: ["php", "artisan", "messaging:consume", "mail"]
+    stop_grace_period: 30s
+    mem_limit: 192m
+    depends_on:
+      messaging-setup:
+        condition: service_completed_successfully
+
+  mail-worker-3:
+    platform: linux/amd64
+    image: localhost/novacart-core:local
+    pull_policy: never
+    init: true
+    stop_signal: SIGTERM
+    restart: unless-stopped
+    environment:
+      <<: *mail-worker-env
+      APP_INSTANCE: mail-worker-3
+    volumes:
+      - storage:/var/www/html/storage
+    command: ["php", "artisan", "messaging:consume", "mail"]
+    stop_grace_period: 30s
+    mem_limit: 192m
+    depends_on:
+      messaging-setup:
+        condition: service_completed_successfully
+
+  scheduler:
+    environment:
+      APP_BOOTSTRAP_MODE: worker
+  event-relay:
+    environment:
+      APP_BOOTSTRAP_MODE: worker
+  realtime-worker:
+    environment:
+      APP_BOOTSTRAP_MODE: worker
+  reverb:
+    environment:
+      APP_BOOTSTRAP_MODE: worker
+  messaging-setup:
+    environment:
+      APP_BOOTSTRAP_MODE: worker

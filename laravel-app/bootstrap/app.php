@@ -21,7 +21,7 @@ use Symfony\Component\HttpKernel\Exception\HttpException;
 use Symfony\Component\HttpKernel\Exception\ServiceUnavailableHttpException;
 use Symfony\Component\HttpKernel\Exception\UnauthorizedHttpException;
 use Symfony\Component\HttpKernel\Exception\UnprocessableEntityHttpException;
-
+use App\Http\Middleware\InstanceIdentity;
 return Application::configure(basePath: dirname(__DIR__))
     // API routes are registered by each module's service provider under
     // /api/v1 (see App\Modules\ModuleServiceProvider).
@@ -32,6 +32,10 @@ return Application::configure(basePath: dirname(__DIR__))
     )
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->append(SecurityHeaders::class);
+        $middleware->append(ReadConsistency::class);
+        $middleware->throttleApi();
+        $middleware->append(SecurityHeaders::class);
+        $middleware->append(InstanceIdentity::class);
         $middleware->append(ReadConsistency::class);
         $middleware->throttleApi();
     })
