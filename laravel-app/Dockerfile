@@ -44,7 +44,9 @@ COPY docker/php/fpm-pool.conf /usr/local/etc/php-fpm.d/zz-app.conf
 WORKDIR /var/www/html
 
 COPY --from=vendor --chown=www-data:www-data /app /var/www/html
-RUN php artisan package:discover --ansi \
+RUN mkdir -p bootstrap/cache storage/app/public storage/framework/cache/data \
+        storage/framework/sessions storage/framework/views storage/logs \
+    && php artisan package:discover --ansi \
     && chown -R www-data:www-data bootstrap/cache storage
 
 COPY docker/app/entrypoint.sh /usr/local/bin/entrypoint
